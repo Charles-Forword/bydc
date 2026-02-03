@@ -17,7 +17,8 @@ from config import (
     GOOGLE_SHEET_URL, SERVICE_ACCOUNT_FILE,
     TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
     EXCLUDE_KEYWORDS, REQUIRED_KEYWORDS, USE_AI_FILTER, OPENAI_API_KEY,
-    ENABLE_CONTENT_SCRAPING, ENABLE_AI_ANALYSIS, ANALYZE_ALL
+    ENABLE_CONTENT_SCRAPING, ENABLE_AI_ANALYSIS, ANALYZE_ALL,
+    AI_PROVIDER, GEMINI_API_KEY
 )
 
 def scrape_blog_content(url):
@@ -126,7 +127,7 @@ def check_relevance_with_ai(title, description):
 
 def analyze_content_with_ai(title, content):
     """AI로 블로그 본문 분석하여 구조화된 인사이트 추출"""
-    if not ENABLE_AI_ANALYSIS or not OPENAI_API_KEY:
+    if not ENABLE_AI_ANALYSIS:
         return {
             "요약": "",
             "주요내용": "",
@@ -134,6 +135,12 @@ def analyze_content_with_ai(title, content):
             "감성": "",
             "액션포인트": ""
         }
+    
+    # API 키 확인
+    if AI_PROVIDER == "gemini" and not GEMINI_API_KEY:
+        return {"요약": "", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
+    elif AI_PROVIDER == "openai" and not OPENAI_API_KEY:
+        return {"요약": "", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
     
     # 분석 범위 제한 (ANALYZE_ALL이 False면 "보양대첩" 언급 글만 분석)
     if not ANALYZE_ALL and "보양대첩" not in title and "보양대첩" not in content:
@@ -163,52 +170,70 @@ def analyze_content_with_ai(title, content):
   "액션포인트": "보양대첩 개선/마케팅에 참고할 만한 사항"
 }}"""
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {OPENAI_API_KEY}"
-        }
-        
-        data = {
-            "model": "gpt-4o-mini",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.3,
-            "max_tokens": 500
-        }
-        
-        response = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers=headers,
-            json=data,
-            timeout=15
-        )
-        
-        if response.status_code == 200:
-            result = response.json()
-            ai_response = result['choices'][0]['message']['content'].strip()
+        if AI_PROVIDER == "gemini":
+            # Gemini API 호출
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
             
-            # JSON 파싱 시도
-            try:
-                # 코드 블록 제거 (```json ... ``` 형식 대응)
-                if "```" in ai_response:
-                    ai_response = ai_response.split("```")[1]
-                    if ai_response.startswith("json"):
-                        ai_response = ai_response[4:]
-                
-                analysis = json_module.loads(ai_response)
-                return analysis
-            except:
-                print(f"   ⚠️ AI 응답 JSON 파싱 실패")
-                return {
-                    "요약": ai_response[:100],
-                    "주요내용": "",
-                    "경쟁사언급": "",
-                    "감성": "",
-                    "액션포인트": ""
+            data = {
+                "contents": [{
+                    "parts": [{"text": prompt}]
+                }],
+                "generationConfig": {
+                    "temperature": 0.3,
+                    "maxOutputTokens": 500
                 }
-        else:
-            print(f"   ⚠️ AI 분석 실패 (status: {response.status_code})")
+            }
+            
+            response = requests.post(url, json=data, timeout=15)
+            
+            if response.status_code == 200:
+                result = response.json()
+                ai_response = result['candidates'][0]['content']['parts'][0]['text'].strip()
+            else:
+                print(f"   ⚠️ Gemini 분석 실패 (status: {response.status_code})")
+                return {"요약": "(분석 실패)", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
+        
+        else:  # openai
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {OPENAI_API_KEY}"
+            }
+            
+            data = {
+                "model": "gpt-4o-mini",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.3,
+                "max_tokens": 500
+            }
+            
+            response = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers,
+                json=data,
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                ai_response = result['choices'][0]['message']['content'].strip()
+            else:
+                print(f"   ⚠️ OpenAI 분석 실패 (status: {response.status_code})")
+                return {"요약": "(분석 실패)", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
+        
+        # JSON 파싱 시도
+        try:
+            # 코드 블록 제거 (```json ... ``` 형식 대응)
+            if "```" in ai_response:
+                ai_response = ai_response.split("```")[1]
+                if ai_response.startswith("json"):
+                    ai_response = ai_response[4:]
+            
+            analysis = json_module.loads(ai_response)
+            return analysis
+        except:
+            print(f"   ⚠️ AI 응답 JSON 파싱 실패")
             return {
-                "요약": "(분석 실패)",
+                "요약": ai_response[:100],
                 "주요내용": "",
                 "경쟁사언급": "",
                 "감성": "",
