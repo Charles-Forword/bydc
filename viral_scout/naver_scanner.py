@@ -329,10 +329,10 @@ def main():
                     print(f"   🚫 제외(AI판단): {title[:40]}")
                     continue
                 
-                print(f"   📖 크롤링: {title[:40]}...")
-                content = scrape_blog_content(link)
+                # description을 본문으로 사용 (150자 미리보기, 크롤링보다 안정적)
+                content = description
                 
-                print(f"   🧠 AI 분석...")
+                print(f"   🧠 AI 분석 ({len(content)}자)...")
                 analysis = analyze_content_with_ai(title, content)
                 
                 row_data = [
