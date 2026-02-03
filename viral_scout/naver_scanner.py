@@ -166,8 +166,10 @@ def analyze_content_with_ai(title, content):
 }}"""
 
         if AI_PROVIDER == "gemini":
-            # Correct format: v1beta/models/{model}:generateContent
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GEMINI_API_KEY}"
+            # Use gemini-2.0-flash (verified via ListModels API)
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+
+
             data = {
                 "contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": {"temperature": 0.3, "maxOutputTokens": 500}
