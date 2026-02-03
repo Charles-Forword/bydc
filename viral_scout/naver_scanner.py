@@ -16,8 +16,51 @@ from config import (
     SEARCH_KEYWORDS, DISPLAY_COUNT, SORT_MODE,
     GOOGLE_SHEET_URL, SERVICE_ACCOUNT_FILE,
     TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
-    EXCLUDE_KEYWORDS, REQUIRED_KEYWORDS, USE_AI_FILTER, OPENAI_API_KEY
+    EXCLUDE_KEYWORDS, REQUIRED_KEYWORDS, USE_AI_FILTER, OPENAI_API_KEY,
+    ENABLE_CONTENT_SCRAPING, ENABLE_AI_ANALYSIS, ANALYZE_ALL
 )
+
+def scrape_blog_content(url):
+    """네이버 블로그 본문 크롤링"""
+    if not ENABLE_CONTENT_SCRAPING:
+        return ""
+    
+    try:
+        from bs4 import BeautifulSoup
+        import requests
+        
+        # User-Agent 설정 (봇 차단 방지)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # 네이버 블로그 본문 추출 (iframe 내부 또는 직접 본문)
+        # 방법 1: se-main-container (스마트에디터3)
+        content = soup.select_one('.se-main-container')
+        if content:
+            return content.get_text(strip=True, separator=' ')[:2000]  # 2000자 제한
+        
+        # 방법 2: post-view (구형 블로그)
+        content = soup.select_one('#postViewArea')
+        if content:
+            return content.get_text(strip=True, separator=' ')[:2000]
+        
+        # 방법 3: 일반 텍스트 추출
+        paragraphs = soup.find_all(['p', 'div'], class_=lambda x: x and 'se-text' in x)
+        if paragraphs:
+            return ' '.join([p.get_text(strip=True) for p in paragraphs])[:2000]
+        
+        return "(본문 추출 실패)"
+        
+    except Exception as e:
+        print(f"   ⚠️ 본문 크롤링 실패: {e}")
+        return "(본문 없음)"
+
 
 def is_blacklisted(title):
     """제외 키워드가 제목에 있는지 확인"""
@@ -81,6 +124,108 @@ def check_relevance_with_ai(title, description):
         return True
 
 
+def analyze_content_with_ai(title, content):
+    """AI로 블로그 본문 분석하여 구조화된 인사이트 추출"""
+    if not ENABLE_AI_ANALYSIS or not OPENAI_API_KEY:
+        return {
+            "요약": "",
+            "주요내용": "",
+            "경쟁사언급": "",
+            "감성": "",
+            "액션포인트": ""
+        }
+    
+    # 분석 범위 제한 (ANALYZE_ALL이 False면 "보양대첩" 언급 글만 분석)
+    if not ANALYZE_ALL and "보양대첩" not in title and "보양대첩" not in content:
+        return {
+            "요약": "(간단 분석 생략)",
+            "주요내용": "",
+            "경쟁사언급": "",
+            "감성": "",
+            "액션포인트": ""
+        }
+    
+    try:
+        import requests
+        import json as json_module
+        
+        prompt = f"""다음 블로그 글을 분석해주세요:
+
+제목: {title}
+본문: {content[:1500]}
+
+아래 JSON 형식으로만 응답해주세요. 다른 설명 없이 JSON만:
+{{
+  "요약": "핵심 내용 3줄 요약",
+  "주요내용": "고객이 언급한 제품 특징 (장점/단점)",
+  "경쟁사언급": "언급된 경쟁 브랜드명 (예: 건강백서, 듀먼). 없으면 빈칸",
+  "감성": "긍정 또는 중립 또는 부정",
+  "액션포인트": "보양대첩 개선/마케팅에 참고할 만한 사항"
+}}"""
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {OPENAI_API_KEY}"
+        }
+        
+        data = {
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.3,
+            "max_tokens": 500
+        }
+        
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            json=data,
+            timeout=15
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            ai_response = result['choices'][0]['message']['content'].strip()
+            
+            # JSON 파싱 시도
+            try:
+                # 코드 블록 제거 (```json ... ``` 형식 대응)
+                if "```" in ai_response:
+                    ai_response = ai_response.split("```")[1]
+                    if ai_response.startswith("json"):
+                        ai_response = ai_response[4:]
+                
+                analysis = json_module.loads(ai_response)
+                return analysis
+            except:
+                print(f"   ⚠️ AI 응답 JSON 파싱 실패")
+                return {
+                    "요약": ai_response[:100],
+                    "주요내용": "",
+                    "경쟁사언급": "",
+                    "감성": "",
+                    "액션포인트": ""
+                }
+        else:
+            print(f"   ⚠️ AI 분석 실패 (status: {response.status_code})")
+            return {
+                "요약": "(분석 실패)",
+                "주요내용": "",
+                "경쟁사언급": "",
+                "감성": "",
+                "액션포인트": ""
+            }
+            
+    except Exception as e:
+        print(f"   ⚠️ AI 분석 오류: {e}")
+        return {
+            "요약": "(분석 오류)",
+            "주요내용": "",
+            "경쟁사언급": "",
+            "감성": "",
+            "액션포인트": ""
+        }
+
+
 def send_telegram_message(message):
     """텔레그램 메시지 발송"""
     try:
@@ -130,8 +275,9 @@ def init_google_sheet():
         
         # 헤더가 없으면 추가
         if not sheet.row_values(1):
-            sheet.append_row(["수집일시", "키워드", "제목", "날짜", "링크", "상태"])
-            print("✅ 시트 헤더 추가 완료")
+            sheet.append_row(["수집일시", "키워드", "제목", "날짜", "링크", "상태", "요약", "주요내용", "경쟁사언급", "감성", "액션포인트"])
+            print("✅ 시트 헤더 추가 완료 (Phase 2 컬럼 포함)")
+
             
         return sheet
     except Exception as e:
