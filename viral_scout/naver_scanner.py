@@ -166,12 +166,13 @@ def analyze_content_with_ai(title, content):
 }}"""
 
         if AI_PROVIDER == "gemini":
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GEMINI_API_KEY}"
             data = {
                 "contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": {"temperature": 0.3, "maxOutputTokens": 500}
             }
             response = requests.post(url, json=data, timeout=15)
+
             
             if response.status_code == 200:
                 result = response.json()
