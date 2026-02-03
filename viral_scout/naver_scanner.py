@@ -3,8 +3,8 @@ import urllib.parse
 import json
 import time
 import ssl
-import sys
 import datetime
+import os
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -32,7 +32,6 @@ def scrape_blog_content(url):
             from bs4 import BeautifulSoup
             import requests
             
-            # User-Agent 설정 (봇 차단 방지)
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
             }
@@ -42,39 +41,34 @@ def scrape_blog_content(url):
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # 네이버 블로그 본문 추출 (iframe 내부 또는 직접 본문)
-            # 방법 1: se-main-container (스마트에디터3)
             content = soup.select_one('.se-main-container')
             if content:
                 text = content.get_text(strip=True, separator=' ')[:2000]
-                if len(text) > 100:  # 최소 100자 이상이어야 유효
+                if len(text) > 100:
                     return text
             
-            # 방법 2: post-view (구형 블로그)
             content = soup.select_one('#postViewArea')
             if content:
                 text = content.get_text(strip=True, separator=' ')[:2000]
                 if len(text) > 100:
                     return text
             
-            # 방법 3: 일반 텍스트 추출
             paragraphs = soup.find_all(['p', 'div'], class_=lambda x: x and 'se-text' in x)
             if paragraphs:
                 text = ' '.join([p.get_text(strip=True) for p in paragraphs])[:2000]
                 if len(text) > 100:
                     return text
             
-            # 모든 방법 실패 시
             if attempt < max_retries - 1:
                 time.sleep(1)
                 continue
-            return "(본문 추출 실패 - 짧은 글)"
+            return "(본문 추출 실패)"
             
         except Exception as e:
             if attempt < max_retries - 1:
                 time.sleep(1)
                 continue
-            print(f"      ⚠️ 본문 크롤링 실패: {str(e)[:50]}")
+            print(f"      ⚠️ 크롤링 실패: {str(e)[:50]}")
             return "(본문 없음)"
     
     return "(본문 없음)"
@@ -95,9 +89,9 @@ def has_required_keyword(title):
     return False
 
 def check_relevance_with_ai(title, description):
-    """AI를 사용해 반려동물 사료 관련 글인지 판단 (True/False)"""
+    """AI를 사용해 반려동물 사료 관련 글인지 판단"""
     if not USE_AI_FILTER or not OPENAI_API_KEY:
-        return True  # AI 필터 비활성화시 모두 통과
+        return True
     
     try:
         import requests
@@ -134,40 +128,24 @@ def check_relevance_with_ai(title, description):
             answer = result['choices'][0]['message']['content'].strip().upper()
             return "YES" in answer
         else:
-            print(f"   ⚠️ AI 필터 호출 실패 (status: {response.status_code}), 통과 처리")
             return True
             
     except Exception as e:
-        print(f"   ⚠️ AI 필터 오류: {e}, 통과 처리")
         return True
 
 
 def analyze_content_with_ai(title, content):
     """AI로 블로그 본문 분석하여 구조화된 인사이트 추출"""
     if not ENABLE_AI_ANALYSIS:
-        return {
-            "요약": "",
-            "주요내용": "",
-            "경쟁사언급": "",
-            "감성": "",
-            "액션포인트": ""
-        }
+        return {"요약": "", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
     
-    # API 키 확인
     if AI_PROVIDER == "gemini" and not GEMINI_API_KEY:
         return {"요약": "", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
     elif AI_PROVIDER == "openai" and not OPENAI_API_KEY:
         return {"요약": "", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
     
-    # 분석 범위 제한 (ANALYZE_ALL이 False면 "보양대첩" 언급 글만 분석)
     if not ANALYZE_ALL and "보양대첩" not in title and "보양대첩" not in content:
-        return {
-            "요약": "(간단 분석 생략)",
-            "주요내용": "",
-            "경쟁사언급": "",
-            "감성": "",
-            "액션포인트": ""
-        }
+        return {"요약": "", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
     
     try:
         import requests
@@ -178,68 +156,49 @@ def analyze_content_with_ai(title, content):
 제목: {title}
 본문: {content[:1500]}
 
-아래 JSON 형식으로만 응답해주세요. 다른 설명 없이 JSON만:
+아래 JSON 형식으로만 응답해주세요:
 {{
   "요약": "핵심 내용 3줄 요약",
-  "주요내용": "고객이 언급한 제품 특징 (장점/단점)",
-  "경쟁사언급": "언급된 경쟁 브랜드명 (예: 건강백서, 듀먼). 없으면 빈칸",
+  "주요내용": "고객이 언급한 제품 특징",
+  "경쟁사언급": "언급된 경쟁 브랜드명 (없으면 빈칸)",
   "감성": "긍정 또는 중립 또는 부정",
-  "액션포인트": "보양대첩 개선/마케팅에 참고할 만한 사항"
+  "액션포인트": "보양대첩 개선사항"
 }}"""
 
         if AI_PROVIDER == "gemini":
-            # Gemini API 호출
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-            
             data = {
-                "contents": [{
-                    "parts": [{"text": prompt}]
-                }],
-                "generationConfig": {
-                    "temperature": 0.3,
-                    "maxOutputTokens": 500
-                }
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.3, "maxOutputTokens": 500}
             }
-            
             response = requests.post(url, json=data, timeout=15)
             
             if response.status_code == 200:
                 result = response.json()
                 ai_response = result['candidates'][0]['content']['parts'][0]['text'].strip()
             else:
-                print(f"   ⚠️ Gemini 분석 실패 (status: {response.status_code})")
-                return {"요약": "(분석 실패)", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
+                print(f"      ⚠️ Gemini 실패 ({response.status_code})")
+                return {"요약": "", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
         
-        else:  # openai
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {OPENAI_API_KEY}"
-            }
-            
+        else:
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_API_KEY}"}
             data = {
                 "model": "gpt-4o-mini",
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.3,
                 "max_tokens": 500
             }
-            
-            response = requests.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers=headers,
-                json=data,
-                timeout=15
-            )
+            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=15)
             
             if response.status_code == 200:
                 result = response.json()
                 ai_response = result['choices'][0]['message']['content'].strip()
             else:
-                print(f"   ⚠️ OpenAI 분석 실패 (status: {response.status_code})")
-                return {"요약": "(분석 실패)", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
+                print(f"      ⚠️ OpenAI 실패 ({response.status_code})")
+                return {"요약": "", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
         
-        # JSON 파싱 시도
+        # JSON 파싱
         try:
-            # 코드 블록 제거 (```json ... ``` 형식 대응)
             if "```" in ai_response:
                 ai_response = ai_response.split("```")[1]
                 if ai_response.startswith("json"):
@@ -248,86 +207,61 @@ def analyze_content_with_ai(title, content):
             analysis = json_module.loads(ai_response)
             return analysis
         except:
-            print(f"   ⚠️ AI 응답 JSON 파싱 실패")
-            return {
-                "요약": ai_response[:100],
-                "주요내용": "",
-                "경쟁사언급": "",
-                "감성": "",
-                "액션포인트": ""
-            }
+            return {"요약": ai_response[:100], "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
             
     except Exception as e:
-        print(f"   ⚠️ AI 분석 오류: {e}")
-        return {
-            "요약": "(분석 오류)",
-            "주요내용": "",
-            "경쟁사언급": "",
-            "감성": "",
-            "액션포인트": ""
-        }
+        print(f"      ⚠️ AI 오류: {str(e)[:50]}")
+        return {"요약": "", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
 
 
 def send_telegram_message(message):
     """텔레그램 메시지 발송"""
     try:
-        # 메시지 길이 제한(4096자) 고려하여 너무 길면 잘라서 보내기 (간단 구현)
-        if len(message) > 4000:
-            message = message[:4000] + "...(생략)"
-            
-        encText = urllib.parse.quote(message)
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage?chat_id={TELEGRAM_CHAT_ID}&text={encText}"
+        import requests
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        data = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
+        response = requests.post(url, data=data, timeout=10)
         
-        request = urllib.request.Request(url)
-        response = urllib.request.urlopen(request)
-        if response.getcode() == 200:
+        if response.status_code == 200:
             print("✅ 텔레그램 발송 성공")
         else:
-            print(f"❌ 텔레그램 발송 실패: {response.getcode()}")
+            print(f"❌ 텔레그램 발송 실패: {response.status_code}")
     except Exception as e:
         print(f"❌ 텔레그램 발송 오류: {e}")
 
-def format_date(naver_date_str):
-    """네이버 날짜 형식(YYYYMMDD)을 YYYY-MM-DD로 변환"""
-    return f"{naver_date_str[:4]}-{naver_date_str[4:6]}-{naver_date_str[6:]}"
+def format_date(date_str):
+    """날짜 형식 변환"""
+    try:
+        return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+    except:
+        return date_str
 
 def init_google_sheet():
-    """구글 시트 연결 및 초기화"""
+    """구글 시트 초기화"""
     try:
-        # GitHub Actions 환경: 환경변수에서 JSON 키 생성
-        import os
-        if not os.path.exists(SERVICE_ACCOUNT_FILE):
-             if "GOOGLE_SERVICE_ACCOUNT_JSON" in os.environ:
-                 print("ℹ️ GitHub Env: Creating service_account.json from secret")
-                 with open(SERVICE_ACCOUNT_FILE, "w") as f:
-                     f.write(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
-             else:
-                 # 로컬인데 파일이 없고 환경변수도 없으면 에러 (경로 문제 가능성)
-                 # 기존 절대 경로 처리
-                 pass
+        if os.environ.get("GITHUB_ACTIONS"):
+            print("ℹ️ GitHub Env: Creating service_account.json from secret")
+            json_content = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+            if json_content:
+                with open("service_account.json", "w") as f:
+                    f.write(json_content)
 
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        # 상대 경로 사용 (Git Repo 내부)
-        json_path = SERVICE_ACCOUNT_FILE
-        # 만약 로컬 절대경로가 필요하면 예외처리 (여기서는 생략하고 단순화)
-        
-        creds = ServiceAccountCredentials.from_json_keyfile_name(json_path, scope)
+        creds = ServiceAccountCredentials.from_json_keyfile_name(SERVICE_ACCOUNT_FILE, scope)
         client = gspread.authorize(creds)
-        sheet = client.open_by_url(GOOGLE_SHEET_URL).sheet1 # 첫 번째 시트 사용
+        sheet = client.open_by_url(GOOGLE_SHEET_URL).sheet1
         
-        # 헤더가 없으면 추가
         if not sheet.row_values(1):
             sheet.append_row(["수집일시", "키워드", "제목", "날짜", "링크", "상태", "요약", "주요내용", "경쟁사언급", "감성", "액션포인트"])
-            print("✅ 시트 헤더 추가 완료 (Phase 2 컬럼 포함)")
-
+            print("✅ 시트 헤더 추가 (Phase 2 포함)")
             
         return sheet
     except Exception as e:
-        print(f"❌ 구글 시트 연결 실패: {e}")
+        print(f"❌ 시트 연결 실패: {e}")
         return None
 
 def search_naver_blog(query):
-    """네이버 블로그 검색 API 호출"""
+    """네이버 블로그 검색"""
     encText = urllib.parse.quote(query)
     url = f"https://openapi.naver.com/v1/search/blog?query={encText}&display={DISPLAY_COUNT}&sort={SORT_MODE}"
     
@@ -337,29 +271,29 @@ def search_naver_blog(query):
     
     try:
         response = urllib.request.urlopen(request)
-        res_code = response.getcode()
-        
-        if res_code == 200:
-            response_body = response.read()
-            return json.loads(response_body.decode('utf-8'))
-        else:
-            print(f"Error Code: {res_code}")
-            return None
+        if response.getcode() == 200:
+            return json.loads(response.read().decode('utf-8'))
     except Exception as e:
-        print(f"API Request Failed: {e}")
-        return None
+        print(f"   ❌ API 오류: {e}")
+    return None
 
 def main():
-    print(f"🚀 Viral Scout: Naver & Google Sheet Scanning Started...")
+    print("🚀 Viral Scout: Naver & Google Sheet Scanning Started...")
     
-    # 1. 구글 시트 연결
+    # API 키 체크
+    if ENABLE_AI_ANALYSIS:
+        if AI_PROVIDER == "gemini":
+            print(f"✅ AI Provider: Gemini" + (" (API 키 확인됨)" if GEMINI_API_KEY else " ⚠️ API 키 없음"))
+        elif AI_PROVIDER == "openai":
+            print(f"✅ AI Provider: OpenAI" + (" (API 키 확인됨)" if OPENAI_API_KEY else " ⚠️ API 키 없음"))
+    
     sheet = init_google_sheet()
     if not sheet:
-        print("시트 연결 실패로 프로그램을 종료합니다.")
+        print("시트 연결 실패")
         return
 
     today_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    new_count = 0
+    all_rows = []
     briefing_lines = []
 
     for keyword in SEARCH_KEYWORDS:
@@ -370,52 +304,88 @@ def main():
         if result and 'items' in result:
             items = result['items']
             if not items:
-                print("   (검색 결과 없음)")
+                print("   (결과 없음)")
                 continue
 
             for item in items:
                 title = item['title'].replace('<b>', '').replace('</b>', '').replace('&quot;', '"')
                 link = item['link']
                 postdate = format_date(item['postdate'])
+                description = item.get('description', '').replace('<b>', '').replace('</b>', '').replace('&quot;', '"')
                 
-                # 기존 데이터 중복 체크 (링크 기준) - 간단하게 메모리상에서 체크 비효율적일 수 있으나 일단 구현
-                # (실제로는 시트의 모든 데이터를 가져와서 비교하거나 별도 DB 사용)
-                # 여기서는 일단 무조건 추가하고 시트에서 중복제거 기능을 쓰는 것을 권장
+                if is_blacklisted(title):
+                    print(f"   🚫 제외(블랙리스트): {title[:40]}")
+                    continue
                 
-                row_data = [today_str, keyword, title, postdate, link, "신규"]
+                if not has_required_keyword(title):
+                    print(f"   🚫 제외(필수키워드): {title[:40]}")
+                    continue
                 
-                try:
-                    sheet.append_row(row_data)
-                    print(f"   ✅ 저장: {title}")
-                    new_count += 1
-                    keyword_count += 1
-                    
-                    # 브리핑용: 키워드별 상위 2개만 제목 수집
-                    if keyword_count <= 2:
-                        briefing_lines.append(f"- [{keyword}] {title}")
-                        
-                except Exception as e:
-                    print(f"   ❌ 저장 실패: {e}")
-                    time.sleep(1) # API 제한 등 방지
+                if not check_relevance_with_ai(title, description):
+                    print(f"   🚫 제외(AI판단): {title[:40]}")
+                    continue
+                
+                print(f"   📖 크롤링: {title[:40]}...")
+                content = scrape_blog_content(link)
+                
+                print(f"   🧠 AI 분석...")
+                analysis = analyze_content_with_ai(title, content)
+                
+                row_data = [
+                    today_str, keyword, title, postdate, link, "신규",
+                    analysis.get("요약", ""),
+                    analysis.get("주요내용", ""),
+                    analysis.get("경쟁사언급", ""),
+                    analysis.get("감성", ""),
+                    analysis.get("액션포인트", "")
+                ]
+                
+                all_rows.append(row_data)
+                print(f"   ✅ 준비: {title[:40]}")
+                if analysis.get("요약"):
+                    print(f"      💡 {analysis['요약'][:50]}...")
+                
+                keyword_count += 1
+                if keyword_count <= 2:
+                    briefing_lines.append(f"- [{keyword}] {title}")
+                
+                time.sleep(0.5)
 
         else:
-            print("   (API 호출 실패 또는 데이터 없음)")
+            print("   (API 실패)")
         
-        time.sleep(1) # 검색 API 호출 간격
+        time.sleep(1)
 
-    print(f"\n🎉 총 {new_count}건의 데이터를 시트에 저장했습니다!")
+    # 배치 저장
+    if all_rows:
+        print(f"\n💾 {len(all_rows)}건 일괄 저장 중...")
+        try:
+            sheet.append_rows(all_rows, value_input_option='RAW')
+            print(f"✅ {len(all_rows)}건 저장 완료!")
+        except Exception as e:
+            print(f"❌ 배치 실패: {e}")
+            print("⚠️ 개별 저장 재시도...")
+            success = 0
+            for row in all_rows:
+                try:
+                    sheet.append_row(row)
+                    success += 1
+                    time.sleep(2)
+                except:
+                    pass
+            print(f"✅ 개별 저장: {success}/{len(all_rows)}건")
     
-    # 2. 텔레그램 브리핑 발송
+    new_count = len(all_rows)
+    print(f"\n🎉 총 {new_count}건 저장 완료!")
+    
     if new_count > 0:
-        briefing_msg = f"🌞 [Viral Scout 모닝 브리핑]\n\n총 {new_count}건의 새로운 글을 수집했습니다!\n({today_str} 기준)\n\n"
+        msg = f"🌞 [Viral Scout 모닝 브리핑]\n\n총 {new_count}건 수집!\n({today_str})\n\n"
         if briefing_lines:
-            briefing_msg += "📋 주요 수집 목록:\n" + "\n".join(briefing_lines) + "\n..."
-        
-        briefing_msg += f"\n\n👉 구글 시트 확인하기:\n{GOOGLE_SHEET_URL}"
-        
-        send_telegram_message(briefing_msg)
+            msg += "📋 수집 목록:\n" + "\n".join(briefing_lines[:10]) + "\n..."
+        msg += f"\n\n👉 {GOOGLE_SHEET_URL}"
+        send_telegram_message(msg)
     else:
-        print("신규 수집 데이터가 없어 알림을 보내지 않습니다.")
+        print("신규 데이터 없음")
 
 if __name__ == "__main__":
     main()
