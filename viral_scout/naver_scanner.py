@@ -22,45 +22,62 @@ from config import (
 )
 
 def scrape_blog_content(url):
-    """네이버 블로그 본문 크롤링"""
+    """네이버 블로그 본문 크롤링 (재시도 포함)"""
     if not ENABLE_CONTENT_SCRAPING:
         return ""
     
-    try:
-        from bs4 import BeautifulSoup
-        import requests
-        
-        # User-Agent 설정 (봇 차단 방지)
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-        }
-        
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # 네이버 블로그 본문 추출 (iframe 내부 또는 직접 본문)
-        # 방법 1: se-main-container (스마트에디터3)
-        content = soup.select_one('.se-main-container')
-        if content:
-            return content.get_text(strip=True, separator=' ')[:2000]  # 2000자 제한
-        
-        # 방법 2: post-view (구형 블로그)
-        content = soup.select_one('#postViewArea')
-        if content:
-            return content.get_text(strip=True, separator=' ')[:2000]
-        
-        # 방법 3: 일반 텍스트 추출
-        paragraphs = soup.find_all(['p', 'div'], class_=lambda x: x and 'se-text' in x)
-        if paragraphs:
-            return ' '.join([p.get_text(strip=True) for p in paragraphs])[:2000]
-        
-        return "(본문 추출 실패)"
-        
-    except Exception as e:
-        print(f"   ⚠️ 본문 크롤링 실패: {e}")
-        return "(본문 없음)"
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            from bs4 import BeautifulSoup
+            import requests
+            
+            # User-Agent 설정 (봇 차단 방지)
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+            }
+            
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # 네이버 블로그 본문 추출 (iframe 내부 또는 직접 본문)
+            # 방법 1: se-main-container (스마트에디터3)
+            content = soup.select_one('.se-main-container')
+            if content:
+                text = content.get_text(strip=True, separator=' ')[:2000]
+                if len(text) > 100:  # 최소 100자 이상이어야 유효
+                    return text
+            
+            # 방법 2: post-view (구형 블로그)
+            content = soup.select_one('#postViewArea')
+            if content:
+                text = content.get_text(strip=True, separator=' ')[:2000]
+                if len(text) > 100:
+                    return text
+            
+            # 방법 3: 일반 텍스트 추출
+            paragraphs = soup.find_all(['p', 'div'], class_=lambda x: x and 'se-text' in x)
+            if paragraphs:
+                text = ' '.join([p.get_text(strip=True) for p in paragraphs])[:2000]
+                if len(text) > 100:
+                    return text
+            
+            # 모든 방법 실패 시
+            if attempt < max_retries - 1:
+                time.sleep(1)
+                continue
+            return "(본문 추출 실패 - 짧은 글)"
+            
+        except Exception as e:
+            if attempt < max_retries - 1:
+                time.sleep(1)
+                continue
+            print(f"      ⚠️ 본문 크롤링 실패: {str(e)[:50]}")
+            return "(본문 없음)"
+    
+    return "(본문 없음)"
 
 
 def is_blacklisted(title):
