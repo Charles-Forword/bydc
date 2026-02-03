@@ -1,5 +1,4 @@
 import urllib.request
-print("DEBUG: Script started")
 import urllib.parse
 import json
 import time
@@ -11,15 +10,76 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 # macOS SSL 인증서 오류 해결을 위한 패치
 ssl._create_default_https_context = ssl._create_unverified_context
-print("DEBUG: SSL patch applied")
 
 from config import (
     NAVER_CLIENT_ID, NAVER_CLIENT_SECRET, 
     SEARCH_KEYWORDS, DISPLAY_COUNT, SORT_MODE,
     GOOGLE_SHEET_URL, SERVICE_ACCOUNT_FILE,
-    TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+    TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
+    EXCLUDE_KEYWORDS, REQUIRED_KEYWORDS, USE_AI_FILTER, OPENAI_API_KEY
 )
-print("DEBUG: Config imported")
+
+def is_blacklisted(title):
+    """제외 키워드가 제목에 있는지 확인"""
+    for keyword in EXCLUDE_KEYWORDS:
+        if keyword in title:
+            return True
+    return False
+
+def has_required_keyword(title):
+    """필수 키워드 중 하나라도 제목에 있는지 확인"""
+    for keyword in REQUIRED_KEYWORDS:
+        if keyword in title:
+            return True
+    return False
+
+def check_relevance_with_ai(title, description):
+    """AI를 사용해 반려동물 사료 관련 글인지 판단 (True/False)"""
+    if not USE_AI_FILTER or not OPENAI_API_KEY:
+        return True  # AI 필터 비활성화시 모두 통과
+    
+    try:
+        import requests
+        
+        prompt = f"""다음 블로그 글이 "반려동물(강아지/고양이) 사료, 간식, 영양제" 관련 내용인지 판단해주세요.
+사람이 먹는 음식, 한식 레시피, 맛집, 인테리어 등은 관련 없습니다.
+
+제목: {title}
+요약: {description}
+
+답변은 "YES" 또는 "NO"로만 해주세요."""
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {OPENAI_API_KEY}"
+        }
+        
+        data = {
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.1,
+            "max_tokens": 10
+        }
+        
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            json=data,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            answer = result['choices'][0]['message']['content'].strip().upper()
+            return "YES" in answer
+        else:
+            print(f"   ⚠️ AI 필터 호출 실패 (status: {response.status_code}), 통과 처리")
+            return True
+            
+    except Exception as e:
+        print(f"   ⚠️ AI 필터 오류: {e}, 통과 처리")
+        return True
+
 
 def send_telegram_message(message):
     """텔레그램 메시지 발송"""
