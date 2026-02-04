@@ -1,0 +1,195 @@
+"""
+네이버 카페 크롤러
+통합검색 카페 탭에서 게시글 + 댓글 수집
+"""
+
+import time
+import hashlib
+from playwright.sync_api import sync_playwright
+from config import SEARCH_KEYWORDS, CAFE_MAX_POSTS
+
+def generate_post_hash(author, title, content):
+    """중복 제거용 해시 생성"""
+    unique_str = f"{author}{title}{content[:100]}"
+    return hashlib.md5(unique_str.encode()).hexdigest()
+
+
+def search_cafe_posts(keyword, max_posts=20):
+    """
+    네이버 통합검색 카페 탭에서 게시글 수집
+    
+    Args:
+        keyword: 검색 키워드
+        max_posts: 최대 수집 개수
+    
+    Returns:
+        list: 게시글 정보 딕셔너리 리스트
+    """
+    results = []
+    
+    with sync_playwright() as p:
+        # 브라우저 실행 (headless mode)
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        
+        try:
+            # 1. 네이버 검색
+            print(f"   🔍 카페 검색: '{keyword}'")
+            search_url = f"https://search.naver.com/search.naver?where=article&query={keyword}"
+            page.goto(search_url, wait_until="networkidle")
+            
+            # 2. 카페 탭 클릭
+            try:
+                cafe_tab = page.locator("a.tab:has-text('카페')")
+                if cafe_tab.count() > 0:
+                    cafe_tab.click()
+                    page.wait_for_load_state("networkidle")
+                else:
+                    print(f"   ⚠️ 카페 탭 없음")
+                    return results
+            except Exception as e:
+                print(f"   ⚠️ 카페 탭 클릭 실패: {e}")
+                return results
+            
+            # 3. 게시글 리스트 수집
+            post_items = page.locator(".total_wrap .bx").all()
+            print(f"   📋 발견된 게시글: {len(post_items)}개")
+            
+            for idx, item in enumerate(post_items[:max_posts]):
+                try:
+                    # 제목 & 링크
+                    title_elem = item.locator(".total_tit")
+                    title = title_elem.inner_text().strip()
+                    link = title_elem.get_attribute("href")
+                    
+                    # 카페명
+                    cafe_name_elem = item.locator(".txt_inline")
+                    cafe_name = cafe_name_elem.inner_text().strip() if cafe_name_elem.count() > 0 else ""
+                    
+                    # 작성자
+                    author_elem = item.locator(".sub_txt.sub_name")
+                    author = author_elem.inner_text().strip() if author_elem.count() > 0 else "알 수 없음"
+                    
+                    # 날짜
+                    date_elem = item.locator(".sub_time")
+                    post_date = date_elem.inner_text().strip() if date_elem.count() > 0 else ""
+                    
+                    # 미리보기 텍스트
+                    desc_elem = item.locator(".dsc_txt")
+                    description = desc_elem.inner_text().strip() if desc_elem.count() > 0 else ""
+                    
+                    print(f"   📄 [{idx+1}] {title[:40]}... ({cafe_name})")
+                    
+                    # 4. 게시글 상세 페이지 접속 (새 탭)
+                    post_data = scrape_cafe_post_detail(p, link, title, author, cafe_name, post_date, description)
+                    
+                    if post_data:
+                        results.append(post_data)
+                    
+                    time.sleep(1)  # 부하 방지
+                    
+                except Exception as e:
+                    print(f"   ⚠️ 게시글 파싱 실패: {e}")
+                    continue
+            
+        finally:
+            browser.close()
+    
+    return results
+
+
+def scrape_cafe_post_detail(playwright_instance, url, title, author, cafe_name, post_date, description):
+    """
+    카페 게시글 상세 페이지 크롤링
+    
+    Returns:
+        dict: 게시글 데이터 (본문, 댓글 포함)
+    """
+    browser = playwright_instance.chromium.launch(headless=True)
+    page = browser.new_page()
+    
+    try:
+        page.goto(url, wait_until="networkidle", timeout=15000)
+        time.sleep(2)  # 동적 로딩 대기
+        
+        # iframe 확인 (카페는 보통 iframe 사용)
+        iframe = page.frame_locator("iframe#cafe_main")
+        
+        # 본문 추출
+        content = ""
+        try:
+            # 본문 선택자 (카페마다 다를 수 있음)
+            content_selectors = [
+                ".ContentRenderer",
+                ".se-main-container",
+                "#postContent",
+                ".post-content"
+            ]
+            
+            for selector in content_selectors:
+                content_elem = iframe.locator(selector).first
+                if content_elem.count() > 0:
+                    content = content_elem.inner_text().strip()
+                    break
+            
+            if not content:
+                content = description  # 폴백: 미리보기 사용
+        
+        except Exception as e:
+            print(f"      ⚠️ 본문 추출 실패: {e}")
+            content = description
+        
+        # 댓글 수집
+        comments = []
+        try:
+            comment_items = iframe.locator(".CommentItem").all()
+            
+            for comment_elem in comment_items[:20]:  # 최대 20개
+                try:
+                    comment_author = comment_elem.locator(".comment_nickname").inner_text().strip()
+                    comment_text = comment_elem.locator(".comment_text_view").inner_text().strip()
+                    
+                    comments.append({
+                        "author": comment_author,
+                        "content": comment_text
+                    })
+                except:
+                    continue
+        
+        except Exception as e:
+            print(f"      ⚠️ 댓글 수집 실패: {e}")
+        
+        # 해시 생성
+        post_hash = generate_post_hash(author, title, content)
+        
+        return {
+            "source": "카페",
+            "cafe_name": cafe_name,
+            "title": title,
+            "link": url,
+            "author": author,
+            "date": post_date,
+            "content": content[:2000],  # 2000자 제한
+            "description": description,
+            "comments": comments,
+            "hash": post_hash
+        }
+    
+    except Exception as e:
+        print(f"      ⚠️ 상세 페이지 로딩 실패: {e}")
+        return None
+    
+    finally:
+        browser.close()
+
+
+if __name__ == "__main__":
+    # 테스트
+    results = search_cafe_posts("보양대첩", max_posts=5)
+    print(f"\n✅ 수집 완료: {len(results)}건")
+    
+    for r in results:
+        print(f"\n제목: {r['title']}")
+        print(f"카페: {r['cafe_name']}")
+        print(f"본문: {r['content'][:100]}...")
+        print(f"댓글: {len(r['comments'])}개")
