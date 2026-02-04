@@ -326,6 +326,8 @@ def main():
     cafe_rows = []  # 카페 데이터
     briefing_lines = []
 
+    # ⚠️ 임시: 블로그 검색 비활성화 (카페 테스트용)
+    """
     for keyword in SEARCH_KEYWORDS:
         print(f"\n🔎 검색어: '{keyword}'")
         result = search_naver_blog(keyword)
@@ -386,6 +388,7 @@ def main():
             print("   (API 실패)")
         
         time.sleep(1)
+    """
     
     # Phase 3: 카페 크롤링
     if ENABLE_CAFE_CRAWLING:

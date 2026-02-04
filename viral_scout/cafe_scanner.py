@@ -51,32 +51,60 @@ def search_cafe_posts(keyword, max_posts=20):
                 print(f"   ⚠️ 카페 탭 클릭 실패: {e}")
                 return results
             
-            # 3. 게시글 리스트 수집
-            post_items = page.locator(".total_wrap .bx").all()
-            print(f"   📋 발견된 게시글: {len(post_items)}개")
+            
+            # 3. 게시글 리스트 수집 (검증된 선택자)
+            post_items = []
+            selectors = [
+                ".api_subject_bx",   # PC 웹 카페 게시글 (가장 정확)
+                "li.bx",             # 폴백
+            ]
+            
+            for selector in selectors:
+                items = page.locator(selector).all()
+                if len(items) > 0:
+                    post_items = items
+                    print(f"   ✅ 선택자: {selector} ({len(items)}개 발견)")
+                    break
+            
+            print(f"   📋 수집 시작: {min(len(post_items), max_posts)}개")
             
             for idx, item in enumerate(post_items[:max_posts]):
                 try:
-                    # 제목 & 링크
-                    title_elem = item.locator(".total_tit")
-                    title = title_elem.inner_text().strip()
-                    link = title_elem.get_attribute("href")
+                    # 제목 & 링크 (여러 선택자 시도)
+                    title = ""
+                    link = ""
+                    
+                    title_selectors = [".api_txt_lines.total_tit", ".total_tit", "a.link"]
+                    for sel in title_selectors:
+                        elem = item.locator(sel).first
+                        if elem.count() > 0:
+                            title = elem.inner_text().strip()
+                            link = elem.get_attribute("href") or ""
+                            break
+                    
+                    if not title:
+                        continue
                     
                     # 카페명
-                    cafe_name_elem = item.locator(".txt_inline")
-                    cafe_name = cafe_name_elem.inner_text().strip() if cafe_name_elem.count() > 0 else ""
+                    cafe_name_elem = item.locator(".sub_txt.sub_name, .txt_inline")
+                    cafe_name = cafe_name_elem.first.inner_text().strip() if cafe_name_elem.count() > 0 else ""
                     
-                    # 작성자
-                    author_elem = item.locator(".sub_txt.sub_name")
-                    author = author_elem.inner_text().strip() if author_elem.count() > 0 else "알 수 없음"
+                    # 작성자 (카페명이랑 구분)
+                    author = "카페회원"
                     
                     # 날짜
-                    date_elem = item.locator(".sub_time")
-                    post_date = date_elem.inner_text().strip() if date_elem.count() > 0 else ""
+                    date_elem = item.locator(".sub_time, .txt_inline")
+                    post_date = ""
+                    if date_elem.count() > 0:
+                        for elem in date_elem.all():
+                            text = elem.inner_text().strip()
+                            if "." in text or "전" in text:  # 날짜 형식
+                                post_date = text
+                                break
                     
                     # 미리보기 텍스트
-                    desc_elem = item.locator(".dsc_txt")
-                    description = desc_elem.inner_text().strip() if desc_elem.count() > 0 else ""
+                    desc_elem = item.locator(".api_txt_lines.dsc_txt, .dsc_txt")
+                    description = desc_elem.first.inner_text().strip() if desc_elem.count() > 0 else ""
                     
                     print(f"   📄 [{idx+1}] {title[:40]}... ({cafe_name})")
                     
