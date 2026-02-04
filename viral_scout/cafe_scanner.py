@@ -52,59 +52,37 @@ def search_cafe_posts(keyword, max_posts=20):
                 return results
             
             
-            # 3. 게시글 리스트 수집 (검증된 선택자)
-            post_items = []
-            selectors = [
-                ".api_subject_bx",   # PC 웹 카페 게시글 (가장 정확)
-                "li.bx",             # 폴백
-            ]
+            # 3. 게시글 리스트 수집 (광고 제외, 실제 카페 게시글만)
+            # title_area 클래스를 가진 a 태그 = 실제 제목 링크
+            title_links = page.locator("a[href*='cafe.naver.com'][class*='title']").all()
             
-            for selector in selectors:
-                items = page.locator(selector).all()
-                if len(items) > 0:
-                    post_items = items
-                    print(f"   ✅ 선택자: {selector} ({len(items)}개 발견)")
-                    break
+            print(f"   ✅ 실제 카페 게시글: {len(title_links)}개 발견")
+            print(f"   📋 수집 시작: {min(len(title_links), max_posts)}개")
             
-            print(f"   📋 수집 시작: {min(len(post_items), max_posts)}개")
-            
-            for idx, item in enumerate(post_items[:max_posts]):
+            for idx, link_elem in enumerate(title_links[:max_posts]):
                 try:
-                    # 제목 & 링크 (여러 선택자 시도)
-                    title = ""
-                    link = ""
+                    # 제목 & 링크 (직접 추출)
+                    title = link_elem.inner_text().strip()
+                    link = link_elem.get_attribute("href") or ""
                     
-                    title_selectors = [".api_txt_lines.total_tit", ".total_tit", "a.link"]
-                    for sel in title_selectors:
-                        elem = item.locator(sel).first
-                        if elem.count() > 0:
-                            title = elem.inner_text().strip()
-                            link = elem.get_attribute("href") or ""
-                            break
-                    
-                    if not title:
+                    if not title or not link:
                         continue
                     
-                    # 카페명
-                    cafe_name_elem = item.locator(".sub_txt.sub_name, .txt_inline")
-                    cafe_name = cafe_name_elem.first.inner_text().strip() if cafe_name_elem.count() > 0 else ""
+                    # 카페명 찾기 (같은 블록 안에서)
+                    parent = link_elem.locator('xpath=ancestor::div[contains(@class,"total_wrap") or contains(@class,"api_")]').first
+                    cafe_name_elem = parent.locator(".sub_txt.sub_name, a[href*='cafe.naver.com']:not([class*='title'])").first
+                    cafe_name = cafe_name_elem.inner_text().strip() if cafe_name_elem.count() > 0 else ""
                     
-                    # 작성자 (카페명이랑 구분)
+                    # 작성자
                     author = "카페회원"
                     
                     # 날짜
-                    date_elem = item.locator(".sub_time, .txt_inline")
-                    post_date = ""
-                    if date_elem.count() > 0:
-                        for elem in date_elem.all():
-                            text = elem.inner_text().strip()
-                            if "." in text or "전" in text:  # 날짜 형식
-                                post_date = text
-                                break
+                    date_elem = parent.locator(".sub_time").first
+                    post_date = date_elem.inner_text().strip() if date_elem.count() > 0 else ""
                     
                     # 미리보기 텍스트
-                    desc_elem = item.locator(".api_txt_lines.dsc_txt, .dsc_txt")
-                    description = desc_elem.first.inner_text().strip() if desc_elem.count() > 0 else ""
+                    desc_elem = parent.locator(".dsc_area, .dsc_txt").first
+                    description = desc_elem.inner_text().strip() if desc_elem.count() > 0 else ""
                     
                     print(f"   📄 [{idx+1}] {title[:40]}... ({cafe_name})")
                     
