@@ -240,8 +240,8 @@ def format_date(date_str):
     except:
         return date_str
 
-def init_google_sheet():
-    """구글 시트 초기화"""
+def init_google_sheets():
+    """구글 시트 초기화 (블로그 + 카페 별도 시트)"""
     try:
         if os.environ.get("GITHUB_ACTIONS"):
             print("ℹ️ GitHub Env: Creating service_account.json from secret")
@@ -253,16 +253,38 @@ def init_google_sheet():
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         creds = ServiceAccountCredentials.from_json_keyfile_name(SERVICE_ACCOUNT_FILE, scope)
         client = gspread.authorize(creds)
-        sheet = client.open_by_url(GOOGLE_SHEET_URL).sheet1
+        spreadsheet = client.open_by_url(GOOGLE_SHEET_URL)
         
-        if not sheet.row_values(1):
-            sheet.append_row(["수집일시", "출처", "키워드", "카페명", "제목", "날짜", "링크", "상태", "질문여부", "협찬여부", "요약", "주요내용", "경쟁사언급", "감성", "액션포인트", "댓글_긍정", "댓글_부정", "댓글_중립", "주요불만", "해시"])
-            print("✅ 시트 헤더 추가 (Phase 2 포함)")
+        # 블로그 시트 (기존)
+        try:
+            blog_sheet = spreadsheet.worksheet(BLOG_SHEET_NAME)
+        except:
+            blog_sheet = spreadsheet.sheet1
+        
+        if not blog_sheet.row_values(1):
+            blog_sheet.append_row(["수집일시", "키워드", "제목", "날짜", "링크", "상태", "요약", "주요내용", "경쟁사언급", "감성", "액션포인트"])
+            print(f"✅ 블로그 시트 '{BLOG_SHEET_NAME}' 헤더 추가")
+        
+        # 카페 시트 (신규)
+        try:
+            cafe_sheet = spreadsheet.worksheet(CAFE_SHEET_NAME)
+        except:
+            print(f"📋 '{CAFE_SHEET_NAME}' 시트 생성 중...")
+            cafe_sheet = spreadsheet.add_worksheet(title=CAFE_SHEET_NAME, rows=1000, cols=20)
+        
+        if not cafe_sheet.row_values(1):
+            cafe_sheet.append_row([
+                "수집일시", "키워드", "카페명", "제목", "날짜", "링크", "상태",
+                "질문여부", "협찬여부",
+                "요약", "주요내용", "경쟁사언급", "감성", "액션포인트",
+                "댓글_긍정", "댓글_부정", "댓글_중립", "주요불만", "해시"
+            ])
+            print(f"✅ 카페 시트 '{CAFE_SHEET_NAME}' 헤더 추가")
             
-        return sheet
+        return blog_sheet, cafe_sheet
     except Exception as e:
         print(f"❌ 시트 연결 실패: {e}")
-        return None
+        return None, None
 
 def search_naver_blog(query):
     """네이버 블로그 검색"""
@@ -291,13 +313,14 @@ def main():
         elif AI_PROVIDER == "openai":
             print(f"✅ AI Provider: OpenAI" + (" (API 키 확인됨)" if OPENAI_API_KEY else " ⚠️ API 키 없음"))
     
-    sheet = init_google_sheet()
-    if not sheet:
+    blog_sheet, cafe_sheet = init_google_sheets()
+    if not blog_sheet:
         print("시트 연결 실패")
         return
 
     today_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    all_rows = []
+    blog_rows = []  # 블로그 데이터
+    cafe_rows = []  # 카페 데이터
     briefing_lines = []
 
     for keyword in SEARCH_KEYWORDS:
@@ -335,19 +358,17 @@ def main():
                 print(f"   🧠 AI 분석 ({len(content)}자)...")
                 analysis = analyze_content_with_ai(title, content)
                 
-                # 블로그 데이터 (Phase 3 형식)
+                # 블로그 데이터 (간결 형식)
                 row_data = [
-                    today_str, "블로그", keyword, "", title, postdate, link, "신규",
-                    "", "",  # 질문여부, 협찬여부
+                    today_str, keyword, title, postdate, link, "신규",
                     analysis.get("요약", ""),
                     analysis.get("주요내용", ""),
                     analysis.get("경쟁사언급", ""),
                     analysis.get("감성", ""),
-                    analysis.get("액션포인트", ""),
-                    "", "", "", "", ""  # 댓글 관련 필드
+                    analysis.get("액션포인트", "")
                 ]
                 
-                all_rows.append(row_data)
+                blog_rows.append(row_data)
                 print(f"   ✅ 준비: {title[:40]}")
                 if analysis.get("요약"):
                     print(f"      💡 {analysis['요약'][:50]}...")
@@ -401,7 +422,7 @@ def main():
                     
                     # 카페 데이터
                     row_data = [
-                        today_str, "카페", keyword, post['cafe_name'], post['title'],
+                        today_str, keyword, post['cafe_name'], post['title'],
                         post['date'], post['link'], "신규",
                         "O" if is_question else "",
                         "",  # 협찬 여부 (이미 필터링됨)
@@ -417,7 +438,7 @@ def main():
                         post['hash']
                     ]
                     
-                    all_rows.append(row_data)
+                    cafe_rows.append(row_data)
                     print(f"   ✅ 준비: {post['title'][:40]}")
                     if comment_stats["부정_개수"] > 0:
                         print(f"      ⚠️ 부정 댓글 {comment_stats['부정_개수']}개")
@@ -435,30 +456,32 @@ def main():
         except Exception as e:
             print(f"\n⚠️ 카페 크롤링 실패: {e}")
 
-    # 배치 저장
-    if all_rows:
-        print(f"\n💾 {len(all_rows)}건 일괄 저장 중...")
+    # 분리 저장
+    total_count = 0
+    
+    # 블로그 데이터 저장
+    if blog_rows:
+        print(f"\n📚 블로그 {len(blog_rows)}건 저장 중...")
         try:
-            sheet.append_rows(all_rows, value_input_option='RAW')
-            print(f"✅ {len(all_rows)}건 저장 완료!")
+            blog_sheet.append_rows(blog_rows, value_input_option='RAW')
+            print(f"✅ 블로그 {len(blog_rows)}건 저장 완료!")
+            total_count += len(blog_rows)
         except Exception as e:
-            print(f"❌ 배치 실패: {e}")
-            print("⚠️ 개별 저장 재시도...")
-            success = 0
-            for row in all_rows:
-                try:
-                    sheet.append_row(row)
-                    success += 1
-                    time.sleep(2)
-                except:
-                    pass
-            print(f"✅ 개별 저장: {success}/{len(all_rows)}건")
+            print(f"❌ 블로그 배치 실패: {e}")
     
-    new_count = len(all_rows)
-    print(f"\n🎉 총 {new_count}건 저장 완료!")
+    # 카페 데이터 저장
+    if cafe_rows:
+        print(f"\n🏪 카페 {len(cafe_rows)}건 저장 중...")
+        try:
+            cafe_sheet.append_rows(cafe_rows, value_input_option='RAW')
+            print(f"✅ 카페 {len(cafe_rows)}건 저장 완료!")
+            total_count += len(cafe_rows)
+        except Exception as e:
+            print(f"❌ 카페 배치 실패: {e}")
+    print(f"\n🎉 총 {total_count}건 저장 완료!")
     
-    if new_count > 0:
-        msg = f"🌞 [Viral Scout 모닝 브리핑]\n\n총 {new_count}건 수집!\n({today_str})\n\n"
+    if total_count > 0:
+        msg = f"🌞 [Viral Scout 모닝 브리핑]\n\n총 {total_count}건 수집!\n({today_str})\n\n"
         if briefing_lines:
             msg += "📋 수집 목록:\n" + "\n".join(briefing_lines[:10]) + "\n..."
         msg += f"\n\n👉 {GOOGLE_SHEET_URL}"
