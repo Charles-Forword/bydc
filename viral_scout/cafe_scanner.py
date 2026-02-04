@@ -33,9 +33,9 @@ def search_cafe_posts(keyword, max_posts=20):
         page = browser.new_page()
         
         try:
-            # 1. 네이버 검색
+            # 1. 네이버 통합검색
             print(f"   🔍 카페 검색: '{keyword}'")
-            search_url = f"https://search.naver.com/search.naver?where=article&query={keyword}"
+            search_url = f"https://search.naver.com/search.naver?query={keyword}"
             page.goto(search_url, wait_until="networkidle")
             
             # 2. 카페 탭 클릭
