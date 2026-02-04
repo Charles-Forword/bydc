@@ -13,6 +13,106 @@ def generate_post_hash(author, title, content):
     unique_str = f"{author}{title}{content[:100]}"
     return hashlib.md5(unique_str.encode()).hexdigest()
 
+def extract_representative_image(page, iframe):
+    """
+    카페 글에서 첫 번째 이미지 URL 추출
+    
+    Args:
+        page: Playwright page 객체
+        iframe: iframe locator
+    
+    Returns:
+        str: 이미지 URL (없으면 빈 문자열)
+    """
+    try:
+        # 여러 가능한 이미지 셀렉터 시도
+        image_selectors = [
+            'img.se-image-resource',  # 스마트에디터 이미지
+            'img[src*="cafeptthumb"]',  # 카페 썸네일
+            'img[src*="cafeskthumb"]',  # 카페 썸네일
+            'img[src*="cafefiles"]',  # 카페 원본 이미지
+            '.se-main-container img',  # 스마트에디터 컨테이너 내 이미지
+            '.ContentRenderer img',  # 콘텐츠 렌더러 내 이미지
+            'img[src^="https://"]'  # HTTPS 이미지 (최후 수단)
+        ]
+        
+        for selector in image_selectors:
+            try:
+                img = iframe.locator(selector).first
+                if img.count() > 0:
+                    src = img.get_attribute('src')
+                    if src:
+                        # 썸네일을 원본으로 변환
+                        if 'cafeptthumb' in src or 'cafeskthumb' in src:
+                            # 썸네일 → 원본 변환
+                            src = src.replace('cafeptthumb', 'cafefiles')
+                            src = src.replace('cafeskthumb', 'cafefiles')
+                            # 쿼리 파라미터 제거 (원본 이미지)
+                            src = src.split('?')[0]
+                        return src
+            except:
+                continue
+        
+        return ""
+    except Exception as e:
+        print(f"      ⚠️ 이미지 추출 실패: {str(e)[:50]}")
+        return ""
+
+def improve_cafe_name_extraction(page, initial_cafe_name):
+    """
+    카페명 추출 개선 (여러 방법 시도)
+    
+    Args:
+        page: Playwright page 객체
+        initial_cafe_name: 검색 결과에서 가져온 초기 카페명
+    
+    Returns:
+        str: 개선된 카페명
+    """
+    # 초기 카페명이 있고 유효하면 그대로 사용
+    if initial_cafe_name and initial_cafe_name.strip() and initial_cafe_name != "(없음)":
+        return initial_cafe_name
+    
+    # 상세 페이지에서 다시 추출 시도
+    try:
+        iframe = page.frame_locator("iframe#cafe_main")
+        
+        cafe_name_selectors = [
+            'h1.tit',  # 카페 타이틀
+            '.cafe_name',
+            'a.cafe_name',
+            '.gnb_cafe_title a',
+            'h1.title_text'
+        ]
+        
+        for selector in cafe_name_selectors:
+            try:
+                elem = iframe.locator(selector).first
+                if elem.count() > 0:
+                    cafe_name = elem.inner_text().strip()
+                    if cafe_name:
+                        # "카페명 - 부제" 형태면 첫 부분만
+                        cafe_name = cafe_name.split('-')[0].split('|')[0].strip()
+                        return cafe_name
+            except:
+                continue
+        
+        # 메타 태그에서 추출 시도
+        try:
+            meta_cafe = page.locator('meta[property="og:site_name"]').first
+            if meta_cafe.count() > 0:
+                cafe_name = meta_cafe.get_attribute('content')
+                if cafe_name:
+                    return cafe_name
+        except:
+            pass
+    
+    except Exception as e:
+        pass
+    
+    # 모든 시도 실패 시 기본값
+    return initial_cafe_name if initial_cafe_name else "(카페명 미확인)"
+
 
 def search_cafe_posts(keyword, max_posts=20):
     """
@@ -127,6 +227,14 @@ def scrape_cafe_post_detail(playwright_instance, url, title, author, cafe_name, 
         # iframe 확인 (카페는 보통 iframe 사용)
         iframe = page.frame_locator("iframe#cafe_main")
         
+        # 카페명 개선 (상세 페이지에서 재확인)
+        improved_cafe_name = improve_cafe_name_extraction(page, cafe_name)
+        
+        # 대표이미지 추출
+        representative_image = extract_representative_image(page, iframe)
+        if representative_image:
+            print(f"      🖼️ 이미지 발견: {representative_image[:50]}...")
+        
         # 본문 추출
         content = ""
         try:
@@ -176,13 +284,14 @@ def scrape_cafe_post_detail(playwright_instance, url, title, author, cafe_name, 
         
         return {
             "source": "카페",
-            "cafe_name": cafe_name,
+            "cafe_name": improved_cafe_name,
             "title": title,
             "link": url,
             "author": author,
             "date": post_date,
             "content": content[:2000],  # 2000자 제한
             "description": description,
+            "representative_image": representative_image,  # 대표이미지 추가
             "comments": comments,
             "comment_count": len(comments),  # 댓글 수 추가
             "hash": post_hash

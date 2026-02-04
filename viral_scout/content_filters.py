@@ -27,42 +27,24 @@ QUESTION_PATTERNS = [
 
 def detect_sponsored_content(title, content):
     """
-    협찬/광고성 콘텐츠 감지
+    협찬/광고성 콘텐츠 감지 (약화 버전)
+    
+    명시적 협찬 키워드만 체크 (AI 판단 제거)
+    - 이유: AI 판단은 느리고 오탐(false positive)이 많음
+    - 진짜 고객 리뷰도 긍정적이면 협찬으로 오인됨
     
     Returns:
-        bool: True면 협찬글 (필터링 대상)
+        bool: True면 명확한 협찬글 (필터링 대상)
     """
-    # 1단계: 키워드 확인
-    full_text = title + content
+    # 명시적 협찬 키워드만 확인 (AI 판단 제거)
+    full_text = title + content[:500]  # 본문 전체 대신 앞부분만 체크
+    
     for keyword in SPONSORED_KEYWORDS:
         if keyword in full_text:
             return True
     
-    # 2단계: AI 진정성 판단
-    if not GEMINI_API_KEY and not OPENAI_API_KEY:
-        return False  # API 키 없으면 키워드만으로 판단
-    
-    try:
-        prompt = f"""다음 글이 협찬/광고성 리뷰인지 판단해주세요:
-
-제목: {title}
-본문: {content[:500]}
-
-판단 기준:
-1. 지나치게 일방적으로 긍정적
-2. 구매 유도 문구 포함
-3. 제품 특징만 나열 (경험 없음)
-4. 할인 링크, 쿠폰 제공
-
-YES 또는 NO로만 답변:"""
-
-        ai_response = call_ai_api(prompt, max_tokens=10)
-        
-        return "YES" in ai_response.upper()
-    
-    except Exception as e:
-        print(f"      ⚠️ AI 협찬 감지 실패: {e}")
-        return False
+    # AI 판단 제거 - 너무 많은 정상 리뷰를 차단함
+    return False
 
 
 def is_genuine_question(title, content):
@@ -281,50 +263,54 @@ def remove_hashtags(text):
     return text.strip()
 
 
+# 사용자 지정 핵심 키워드 목록 (J열용)
+CORE_KEYWORDS = [
+    "보양대첩", "건강백서", "밥이보약", "듀먼", "수입",
+    "강아지", "고양이", "기호", "소화", "변",
+    "기력", "활력", "식욕", "설사", "거부"
+]
+
+# 경쟁사 목록 (K열용)
+COMPETITORS = [
+    "건강백서", "밥이보약", "듀먼", "국개대표",
+    "퓨리나", "힐스", "로얄캐닌"
+]
+
+
 def extract_keywords_hybrid(title, content):
     """
-    하이브리드 키워드 추출 (토큰 절약)
-    1. 정규식으로 경쟁사/브랜드명 추출 (빠르고 정확)
-    2. AI로 추가 주제 키워드만 간단히 추출
+    핵심 키워드 추출 (J열: 핵심연관키워드)
+    지정된 키워드 목록에서만 매칭
     
     Returns:
         str: 콤마로 구분된 키워드 문자열
     """
-    # 키워드 사전
-    COMPETITORS = ["로얄캐닌", "힐스", "오리젠", "아카나", "네츄럴발란스", "ANF", "나우프레쉬", "알모네이처", "캐니데이"]
-    BRANDS = ["보양대첩", "워밍", "워터", "비프", "쿨링", "하모니", "인섹트", "밀웜"]
-    PET_KEYWORDS = ["강아지", "고양이", "말티즈", "포메라니안", "포메", "치와와", "비숑", "푸들", "시바", "웰시코기", "리트리버", "페르시안", "코숏", "뱅갈", "랙돌"]
-    SYMPTOMS = ["알러지", "설사", "구토", "식욕부진", "식사거부", "기호성", "피부병", "눈물", "비만", "다이어트"]
-    
-    # 1단계: 정규식 기반 추출
     found_keywords = []
-    full_text = (title + " " + content[:500]).lower()
+    full_text = (title + " " + content[:1000])
     
-    for keyword in COMPETITORS + BRANDS + PET_KEYWORDS + SYMPTOMS:
-        if keyword.lower() in full_text:
+    for keyword in CORE_KEYWORDS:
+        if keyword in full_text:
             found_keywords.append(keyword)
     
-    # 2단계: AI로 추가 핵심 주제만 (매우 짧은 프롬프트)
-    if (GEMINI_API_KEY or OPENAI_API_KEY) and len(found_keywords) < 5:
-        try:
-            prompt = f"다음 글의 핵심 주제/증상을 3개만 단어로 나열 (예: 알러지, 기호성): {title[:80]}"
-            ai_keywords = call_ai_api(prompt, max_tokens=30)
-            if ai_keywords:
-                # 콤마/공백 기준 분리
-                extra_keywords = [k.strip() for k in ai_keywords.replace(",", " ").split() if len(k.strip()) > 1]
-                found_keywords.extend(extra_keywords[:3])
-        except Exception as e:
-            pass  # AI 실패해도 정규식 결과는 반환
+    return ", ".join(found_keywords) if found_keywords else ""
+
+
+def extract_competitors(title, content):
+    """
+    경쟁사 언급 추출 (K열: 경쟁사언급)
+    지정된 경쟁사 목록에서만 매칭
     
-    # 중복 제거 및 최대 10개
-    unique_keywords = []
-    seen = set()
-    for kw in found_keywords:
-        if kw.lower() not in seen:
-            unique_keywords.append(kw)
-            seen.add(kw.lower())
+    Returns:
+        str: 콤마로 구분된 경쟁사 문자열
+    """
+    found_competitors = []
+    full_text = (title + " " + content[:1000])
     
-    return ", ".join(unique_keywords[:10])
+    for competitor in COMPETITORS:
+        if competitor in full_text:
+            found_competitors.append(competitor)
+    
+    return ", ".join(found_competitors) if found_competitors else ""
 
 
 def analyze_cafe_content(title, content):

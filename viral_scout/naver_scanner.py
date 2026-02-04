@@ -247,9 +247,13 @@ def format_date(date_str):
     except:
         return date_str
 
-def get_existing_links(sheet):
+def get_existing_links(sheet, link_column_index):
     """
     구글 시트에서 기존 링크 목록 추출 (중복 체크용)
+    
+    Args:
+        sheet: gspread 시트 객체
+        link_column_index: 링크가 있는 열 인덱스 (0-based)
     
     Returns:
         set: 기존 링크 집합
@@ -258,12 +262,45 @@ def get_existing_links(sheet):
         all_values = sheet.get_all_values()
         if len(all_values) <= 1:
             return set()
-        # F열(링크)은 인덱스 5
-        links = {row[5] for row in all_values[1:] if len(row) > 5 and row[5]}
+        links = {row[link_column_index] for row in all_values[1:] if len(row) > link_column_index and row[link_column_index]}
         return links
     except Exception as e:
         print(f"      ⚠️ 기존 링크 조회 실패: {e}")
         return set()
+
+
+def load_keywords_from_sheet(spreadsheet):
+    """
+    [검색설정] 탭에서 검색 키워드 로드
+    
+    시트 구조: 
+    - A1: 헤더 (예: "검색키워드") - 스킵됨
+    - A2부터: 실제 키워드 나열
+    
+    Returns:
+        list: 키워드 리스트
+    """
+    try:
+        settings_sheet = spreadsheet.worksheet("검색설정")
+        # A열 전체 읽기
+        all_keywords = settings_sheet.col_values(1)
+        # 1행(헤더) 제외하고 빈 값 제거
+        keywords = [k.strip() for k in all_keywords[1:] if k.strip()]
+        
+        if keywords:
+            print(f"📝 [검색설정] 탭에서 {len(keywords)}개 키워드 로드")
+            for i, kw in enumerate(keywords[:5]):
+                print(f"   {i+1}. {kw}")
+            if len(keywords) > 5:
+                print(f"   ... 외 {len(keywords)-5}개")
+            return keywords
+        else:
+            print("⚠️ [검색설정] 탭에 키워드 없음, config.py 기본값 사용")
+            return None
+    except Exception as e:
+        print(f"⚠️ [검색설정] 탭 불러오기 실패: {e}")
+        print("   config.py 기본값 사용")
+        return None
 
 def filter_new_posts(posts, existing_links, source_type="카페"):
     """
@@ -286,7 +323,11 @@ def filter_new_posts(posts, existing_links, source_type="카페"):
     return new_posts
 
 def init_google_sheets():
-    """구글 시트 초기화 (블로그 + 카페 별도 시트)"""
+    """구글 시트 초기화 (블로그 + 카페 별도 시트)
+    
+    Returns:
+        tuple: (blog_sheet, cafe_sheet, spreadsheet)
+    """
     try:
         if os.environ.get("GITHUB_ACTIONS"):
             print("ℹ️ GitHub Env: Creating service_account.json from secret")
@@ -320,14 +361,14 @@ def init_google_sheets():
         if not cafe_sheet.row_values(1):
             cafe_sheet.append_row([
                 "수집일시", "키워드", "카페명", "제목", "날짜", "링크",
-                "본문내용요약", "댓글수", "핵심연관키워드", "주요불만"
+                "본문내용요약", "댓글수", "핵심연관키워드", "경쟁사언급"
             ])
             print(f"✅ 카페 시트 '{CAFE_SHEET_NAME}' 헤더 추가")
             
-        return blog_sheet, cafe_sheet
+        return blog_sheet, cafe_sheet, spreadsheet
     except Exception as e:
         print(f"❌ 시트 연결 실패: {e}")
-        return None, None
+        return None, None, None
 
 def search_naver_blog(query):
     """네이버 블로그 검색"""
@@ -356,19 +397,26 @@ def main():
         elif AI_PROVIDER == "openai":
             print(f"✅ AI Provider: OpenAI" + (" (API 키 확인됨)" if OPENAI_API_KEY else " ⚠️ API 키 없음"))
     
-    blog_sheet, cafe_sheet = init_google_sheets()
+    blog_sheet, cafe_sheet, spreadsheet = init_google_sheets()
     if not blog_sheet:
         print("시트 연결 실패")
         return
+
+    # [검색설정] 탭에서 키워드 로드 (없으면 config.py 기본값)
+    search_keywords = load_keywords_from_sheet(spreadsheet) or SEARCH_KEYWORDS
 
     today_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     blog_rows = []  # 블로그 데이터
     cafe_rows = []  # 카페 데이터
     briefing_lines = []
 
-    # ⚠️ 임시: 블로그 검색 비활성화 (카페 테스트용)
-    """
-    for keyword in SEARCH_KEYWORDS:
+    # Phase 2: 블로그 검색 (활성화)
+    # 중복 체크를 위해 기존 링크 로드 (E열=링크, 인덱스 4)
+    existing_blog_links = get_existing_links(blog_sheet, 4)
+    print(f"\n📝 Phase 2: 블로그 검색 시작...")
+    print(f"   📋 기존 블로그 글: {len(existing_blog_links)}건")
+    
+    for keyword in search_keywords:
         print(f"\n🔎 검색어: '{keyword}'")
         result = search_naver_blog(keyword)
         
@@ -384,6 +432,10 @@ def main():
                 link = item['link']
                 postdate = format_date(item['postdate'])
                 description = item.get('description', '').replace('<b>', '').replace('</b>', '').replace('&quot;', '"')
+                
+                # 중복 체크
+                if link in existing_blog_links:
+                    continue
                 
                 if is_blacklisted(title):
                     print(f"   🚫 제외(블랙리스트): {title[:40]}")
@@ -428,7 +480,6 @@ def main():
             print("   (API 실패)")
         
         time.sleep(1)
-    """
     
     # Phase 3: 카페 크롤링
     if ENABLE_CAFE_CRAWLING:
@@ -438,17 +489,18 @@ def main():
                 detect_sponsored_content,
                 is_genuine_question,
                 analyze_comments_batch,
-                extract_keywords_hybrid
+                extract_keywords_hybrid,
+                extract_competitors
             )
             
             print(f"\n\n🏢 Phase 3: 카페 검색 시작...")
             cafe_briefing = []
             
-            # 중복 체크를 위해 기존 링크 로드
-            existing_cafe_links = get_existing_links(cafe_sheet)
+            # 중복 체크를 위해 기존 링크 로드 (F열=링크, 인덱스 5)
+            existing_cafe_links = get_existing_links(cafe_sheet, 5)
             print(f"   📋 기존 카페 글: {len(existing_cafe_links)}건")
             
-            for keyword in SEARCH_KEYWORDS:
+            for keyword in search_keywords:
                 print(f"\n🔍 [카페] '{keyword}'")
                 cafe_posts = search_cafe_posts(keyword, max_posts=CAFE_MAX_POSTS)
                 
@@ -476,22 +528,20 @@ def main():
                     from content_filters import analyze_cafe_content
                     ai_analysis = analyze_cafe_content(post['title'], post['content'])
                     
-                    # 4. 하이브리드 키워드 추출 (정규식 + AI)
+                    # 4. 핵심 키워드 추출 (I열: 지정 키워드만)
                     keywords_str = extract_keywords_hybrid(post['title'], post['content'])
                     
-                    # 5. 댓글 분석 (주요불만만)
-                    comment_stats = analyze_comments_batch(post['comments']) if ANALYZE_COMMENTS and post['comments'] else {
-                        "주요_불만": "",
-                        "부정_개수": 0
-                    }
+                    # 5. 경쟁사 언급 추출 (J열: 지정 경쟁사만)
+                    competitors_str = extract_competitors(post['title'], post['content'])
                     
-                    # 카페 데이터 (신규 컬럼 구조)
+                    # 카페 데이터 (이미지 열 제거)
                     # A: 수집일시, B: 키워드, C: 카페명
                     # D: 제목, E: 날짜, F: 링크
                     # G: 본문내용요약 (AI 요약, 100자)
                     # H: 댓글수
-                    # I: 핵심연관키워드 (하이브리드 추출)
-                    # J: 주요불만
+                    # I: 핵심연관키워드 (지정 키워드에서 매칭)
+                    # J: 경쟁사언급 (지정 경쟁사에서 매칭)
+                    
                     row_data = [
                         today_str,                                  # A: 수집일시
                         keyword,                                    # B: 키워드
@@ -502,13 +552,13 @@ def main():
                         ai_analysis.get("요약", "")[:100],          # G: 본문내용요약 (100자)
                         comment_count,                              # H: 댓글수
                         keywords_str,                               # I: 핵심연관키워드
-                        comment_stats.get("주요_불만", "")         # J: 주요불만
+                        competitors_str                             # J: 경쟁사언급
                     ]
                     
                     cafe_rows.append(row_data)
                     print(f"   ✅ 준비: {post['title'][:40]}")
-                    if comment_stats["부정_개수"] > 0:
-                        print(f"      ⚠️ 부정 댓글 {comment_stats['부정_개수']}개")
+                    if competitors_str:
+                        print(f"      🏆 경쟁사 언급: {competitors_str}")
                     
                     if is_question:
                         cafe_briefing.append(f"- [질문/{post['cafe_name']}] {post['title'][:40]}")
@@ -540,7 +590,8 @@ def main():
     if cafe_rows:
         print(f"\n🏪 카페 {len(cafe_rows)}건 저장 중...")
         try:
-            cafe_sheet.append_rows(cafe_rows, value_input_option='RAW')
+            # USER_ENTERED로 변경하여 IMAGE 함수가 작동하도록 함
+            cafe_sheet.append_rows(cafe_rows, value_input_option='USER_ENTERED')
             print(f"✅ 카페 {len(cafe_rows)}건 저장 완료!")
             total_count += len(cafe_rows)
         except Exception as e:
