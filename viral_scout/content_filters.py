@@ -271,46 +271,96 @@ def call_ai_api(prompt, max_tokens=100):
 
 
 
-def analyze_cafe_content(title, content):
+def remove_hashtags(text):
     """
-    카페 게시글 AI 분석 (요약 + 주요내용 키워드 추출)
+    텍스트에서 해시태그 제거
+    """
+    import re
+    # Remove hashtags (한글/영문/숫자)
+    text = re.sub(r'#[\w가-힣]+', '', text)
+    return text.strip()
+
+
+def extract_keywords_hybrid(title, content):
+    """
+    하이브리드 키워드 추출 (토큰 절약)
+    1. 정규식으로 경쟁사/브랜드명 추출 (빠르고 정확)
+    2. AI로 추가 주제 키워드만 간단히 추출
     
     Returns:
-        dict: {"요약": "...", "주요내용": "키워드1, 키워드2, ..."}
+        str: 콤마로 구분된 키워드 문자열
+    """
+    # 키워드 사전
+    COMPETITORS = ["로얄캐닌", "힐스", "오리젠", "아카나", "네츄럴발란스", "ANF", "나우프레쉬", "알모네이처", "캐니데이"]
+    BRANDS = ["보양대첩", "워밍", "워터", "비프", "쿨링", "하모니", "인섹트", "밀웜"]
+    PET_KEYWORDS = ["강아지", "고양이", "말티즈", "포메라니안", "포메", "치와와", "비숑", "푸들", "시바", "웰시코기", "리트리버", "페르시안", "코숏", "뱅갈", "랙돌"]
+    SYMPTOMS = ["알러지", "설사", "구토", "식욕부진", "식사거부", "기호성", "피부병", "눈물", "비만", "다이어트"]
+    
+    # 1단계: 정규식 기반 추출
+    found_keywords = []
+    full_text = (title + " " + content[:500]).lower()
+    
+    for keyword in COMPETITORS + BRANDS + PET_KEYWORDS + SYMPTOMS:
+        if keyword.lower() in full_text:
+            found_keywords.append(keyword)
+    
+    # 2단계: AI로 추가 핵심 주제만 (매우 짧은 프롬프트)
+    if (GEMINI_API_KEY or OPENAI_API_KEY) and len(found_keywords) < 5:
+        try:
+            prompt = f"다음 글의 핵심 주제/증상을 3개만 단어로 나열 (예: 알러지, 기호성): {title[:80]}"
+            ai_keywords = call_ai_api(prompt, max_tokens=30)
+            if ai_keywords:
+                # 콤마/공백 기준 분리
+                extra_keywords = [k.strip() for k in ai_keywords.replace(",", " ").split() if len(k.strip()) > 1]
+                found_keywords.extend(extra_keywords[:3])
+        except Exception as e:
+            pass  # AI 실패해도 정규식 결과는 반환
+    
+    # 중복 제거 및 최대 10개
+    unique_keywords = []
+    seen = set()
+    for kw in found_keywords:
+        if kw.lower() not in seen:
+            unique_keywords.append(kw)
+            seen.add(kw.lower())
+    
+    return ", ".join(unique_keywords[:10])
+
+
+def analyze_cafe_content(title, content):
+    """
+    카페 게시글 AI 요약 (본문 요약만, 키워드는 별도 함수)
+    
+    Returns:
+        dict: {"요약": "..."}
     """
     if not GEMINI_API_KEY and not OPENAI_API_KEY:
-        return {"요약": title[:100], "주요내용": ""}
+        # API 없으면 본문 첫 100자 반환
+        clean_content = remove_hashtags(content)
+        return {"요약": clean_content[:100] if clean_content else title[:100]}
     
     try:
-        prompt = f"""다음 카페 게시글을 분석해주세요:
-
-제목: {title}
-본문: {content[:800]}
-
-다음 형식으로만 답변:
-요약: (100자 이내로 핵심 요약)
-주요내용: (반려동물/제품 관련 키워드만 콤마로 나열, 예: 강아지, 식사거부, 설사, 보양대첩, 워밍)"""
-
-        ai_response = call_ai_api(prompt, max_tokens=200)
+        # 해시태그 제거
+        clean_title = remove_hashtags(title)
+        clean_content = remove_hashtags(content)
         
-        # 응답 파싱
-        summary = ""
-        keywords = ""
+        # 짧은 프롬프트 (토큰 절약)
+        prompt = f"""다음 글을 100자 이내로 요약:
+
+제목: {clean_title}
+본문: {clean_content[:300]}
+
+요약만 작성 (해시태그 제외):"""
+
+        ai_response = call_ai_api(prompt, max_tokens=100)
+        summary = ai_response.strip()[:100]
         
-        for line in ai_response.split('\n'):
-            if line.startswith("요약:"):
-                summary = line.replace("요약:", "").strip()[:100]
-            elif line.startswith("주요내용:"):
-                keywords = line.replace("주요내용:", "").strip()
-        
-        return {
-            "요약": summary or title[:100],
-            "주요내용": keywords
-        }
+        return {"요약": summary or clean_content[:100]}
     
     except Exception as e:
-        print(f"      ⚠️ AI 분석 실패: {e}")
-        return {"요약": title[:100], "주요내용": ""}
+        print(f"      ⚠️ AI 요약 실패: {e}")
+        clean_content = remove_hashtags(content)
+        return {"요약": clean_content[:100] if clean_content else title[:100]}
 
 
 if __name__ == "__main__":

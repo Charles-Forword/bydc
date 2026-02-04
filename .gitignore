@@ -34,5 +34,14 @@ ENV/
 # IDE
 .idea/
 .vscode/
+
+# Secrets & API Keys (CRITICAL: Never commit these!)
 service_account.json
-service_account.json
+viral_scout/config.py
+*.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+viral_scout/daily_log.txt

@@ -1,12 +1,16 @@
-import urllib.request
-import urllib.parse
-import json
 import time
 import ssl
 import datetime
 import os
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+
+# .env 파일 자동 로드
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv 없으면 환경변수 직접 사용
 
 # macOS SSL 인증서 오류 해결을 위한 패치
 ssl._create_default_https_context = ssl._create_unverified_context
@@ -243,6 +247,44 @@ def format_date(date_str):
     except:
         return date_str
 
+def get_existing_links(sheet):
+    """
+    구글 시트에서 기존 링크 목록 추출 (중복 체크용)
+    
+    Returns:
+        set: 기존 링크 집합
+    """
+    try:
+        all_values = sheet.get_all_values()
+        if len(all_values) <= 1:
+            return set()
+        # F열(링크)은 인덱스 5
+        links = {row[5] for row in all_values[1:] if len(row) > 5 and row[5]}
+        return links
+    except Exception as e:
+        print(f"      ⚠️ 기존 링크 조회 실패: {e}")
+        return set()
+
+def filter_new_posts(posts, existing_links, source_type="카페"):
+    """
+    신규 게시글만 필터링 (중복 제외)
+    
+    Args:
+        posts: 게시글 리스트
+        existing_links: 기존 링크 집합
+        source_type: "블로그" 또는 "카페"
+    
+    Returns:
+        list: 중복 제외된 신규 게시글
+    """
+    new_posts = [p for p in posts if p.get('link') not in existing_links]
+    duplicates = len(posts) - len(new_posts)
+    
+    if duplicates > 0:
+        print(f"   🔄 [{source_type}] 중복 {duplicates}건 제외, 신규 {len(new_posts)}건")
+    
+    return new_posts
+
 def init_google_sheets():
     """구글 시트 초기화 (블로그 + 카페 별도 시트)"""
     try:
@@ -278,7 +320,7 @@ def init_google_sheets():
         if not cafe_sheet.row_values(1):
             cafe_sheet.append_row([
                 "수집일시", "키워드", "카페명", "제목", "날짜", "링크",
-                "요약", "주요내용", "경쟁사언급", "댓글수", "주요불만", "해시"
+                "본문내용요약", "댓글수", "핵심연관키워드", "주요불만"
             ])
             print(f"✅ 카페 시트 '{CAFE_SHEET_NAME}' 헤더 추가")
             
@@ -395,17 +437,25 @@ def main():
             from content_filters import (
                 detect_sponsored_content,
                 is_genuine_question,
-                analyze_comments_batch
+                analyze_comments_batch,
+                extract_keywords_hybrid
             )
             
             print(f"\n\n🏢 Phase 3: 카페 검색 시작...")
             cafe_briefing = []
             
+            # 중복 체크를 위해 기존 링크 로드
+            existing_cafe_links = get_existing_links(cafe_sheet)
+            print(f"   📋 기존 카페 글: {len(existing_cafe_links)}건")
+            
             for keyword in SEARCH_KEYWORDS:
                 print(f"\n🔍 [카페] '{keyword}'")
                 cafe_posts = search_cafe_posts(keyword, max_posts=CAFE_MAX_POSTS)
                 
-                for post in cafe_posts:
+                # 중복 제외
+                new_posts = filter_new_posts(cafe_posts, existing_cafe_links, "카페")
+                
+                for post in new_posts:
                     # 1. 댓글 수 확인
                     comment_count = post.get('comment_count', 0)
                     is_question = is_genuine_question(post['title'], post['content'])
@@ -421,35 +471,38 @@ def main():
                             print(f"   🚫 협찬글 제외: {post['title'][:40]}")
                             continue
                     
-                    # 3. AI 분석 (요약 + 키워드)
-                    print(f"   🧠 AI 분석 ({len(post['content'])}자)...")
+                    # 3. AI 요약
+                    print(f"   🧠 AI 요약 중...")
                     from content_filters import analyze_cafe_content
                     ai_analysis = analyze_cafe_content(post['title'], post['content'])
                     
-                    # 4. 댓글 분석 (주요불만만)
+                    # 4. 하이브리드 키워드 추출 (정규식 + AI)
+                    keywords_str = extract_keywords_hybrid(post['title'], post['content'])
+                    
+                    # 5. 댓글 분석 (주요불만만)
                     comment_stats = analyze_comments_batch(post['comments']) if ANALYZE_COMMENTS and post['comments'] else {
-                        "주요_불만": ""
+                        "주요_불만": "",
+                        "부정_개수": 0
                     }
                     
-                    # 5. 경쟁사 언급 확인
-                    competitor_mention = ""
-                    competitor_keywords = ["로얄캐닌", "힐스", "오리젠", "아카나", "네츄럴발란스"]
-                    content_lower = (post['title'] + post['content']).lower()
-                    for comp in competitor_keywords:
-                        if comp.lower() in content_lower:
-                            competitor_mention = comp
-                            break
-                    
-                    # 카페 데이터 (간소화된 형식)
+                    # 카페 데이터 (신규 컬럼 구조)
+                    # A: 수집일시, B: 키워드, C: 카페명
+                    # D: 제목, E: 날짜, F: 링크
+                    # G: 본문내용요약 (AI 요약, 100자)
+                    # H: 댓글수
+                    # I: 핵심연관키워드 (하이브리드 추출)
+                    # J: 주요불만
                     row_data = [
-                        today_str, keyword, post['cafe_name'], post['title'],
-                        post['date'], post['link'],
-                        ai_analysis.get("요약", "")[:100],  # 100자 제한
-                        ai_analysis.get("주요내용", ""),
-                        competitor_mention,
-                        comment_count,
-                        comment_stats.get("주요_불만", ""),
-                        post['hash']
+                        today_str,                                  # A: 수집일시
+                        keyword,                                    # B: 키워드
+                        post['cafe_name'],                          # C: 카페명
+                        post['title'],                              # D: 제목
+                        post['date'],                               # E: 날짜
+                        post['link'],                               # F: 링크
+                        ai_analysis.get("요약", "")[:100],          # G: 본문내용요약 (100자)
+                        comment_count,                              # H: 댓글수
+                        keywords_str,                               # I: 핵심연관키워드
+                        comment_stats.get("주요_불만", "")         # J: 주요불만
                     ]
                     
                     cafe_rows.append(row_data)

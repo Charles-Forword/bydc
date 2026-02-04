@@ -1,0 +1,51 @@
+# 🔐 Environment Variables Template
+# Copy this file to viral_scout/config.py and fill in your actual values
+# NEVER commit config.py to Git!
+
+import os
+
+# 검색 설정
+SEARCH_KEYWORDS = ["보양대첩", "보양대첩 사료", "보양대첩 워밍", "보양대첩 고양이", "보양대첩 쿨링", "보양대첩 연어", "보양대첩 하모니", "보양대첩 화식", "보양대첩 강아지", "보양대첩 습식사료"]
+DISPLAY_COUNT = 20
+SORT_MODE = "date"
+
+# 필터링 설정
+EXCLUDE_KEYWORDS = ["한식대첩", "삼계탕", "이우철", "누룽지", "맛집", "레시피", "요리", "중식당", "인테리어", "입주청소", "여행"]
+REQUIRED_KEYWORDS = ["강아지", "반려견", "멍", "댕댕", "고양이", "반려묘", "냥", "펫", "사료", "캔", "간식", "화식", "습식"]
+USE_AI_FILTER = False
+
+# 콘텐츠 분석 설정
+ENABLE_CONTENT_SCRAPING = False
+ENABLE_AI_ANALYSIS = True
+ANALYZE_ALL = True
+AI_PROVIDER = "gemini"  # "gemini" 또는 "openai"
+
+# 카페 크롤링 설정
+ENABLE_CAFE_CRAWLING = True
+CAFE_MAX_POSTS = 10
+PRIORITIZE_QUESTIONS = True
+FILTER_SPONSORED = True
+ANALYZE_COMMENTS = True
+
+# 구글 스프레드시트 설정
+GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit"
+BLOG_SHEET_NAME = "블로그"
+CAFE_SHEET_NAME = "카페"
+SERVICE_ACCOUNT_FILE = "service_account.json"
+
+# ⚠️ SECRETS - 환경변수에서만 읽음 (하드코딩 금지!)
+# GitHub Actions: Repository Settings > Secrets에서 설정
+# 로컬 실행: export NAVER_CLIENT_ID="your_id" 형태로 설정
+NAVER_CLIENT_ID = os.environ.get("NAVER_CLIENT_ID")
+NAVER_CLIENT_SECRET = os.environ.get("NAVER_CLIENT_SECRET")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+
+# Validation (환경변수가 없으면 경고)
+if not GEMINI_API_KEY and not OPENAI_API_KEY:
+    print("⚠️ Warning: No AI API key found. Set GEMINI_API_KEY or OPENAI_API_KEY environment variable.")
+
+if not NAVER_CLIENT_ID or not NAVER_CLIENT_SECRET:
+    print("⚠️ Warning: Naver API credentials not found. Set NAVER_CLIENT_ID and NAVER_CLIENT_SECRET.")

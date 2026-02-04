@@ -8,3 +8,11 @@ Finished
 Execution Time: Tue Feb  3 17:56:06 KST 2026
 Finished
 ========================================
+========================================
+Execution Time: Wed Feb  4 15:46:32 KST 2026
+🚀 Viral Scout: Naver & Google Sheet Scanning Started...
+✅ AI Provider: Gemini (API 키 확인됨)
+❌ 시트 연결 실패: [Errno 2] No such file or directory: 'service_account.json'
+시트 연결 실패
+Finished
+========================================
