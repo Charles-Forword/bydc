@@ -40,7 +40,7 @@ def search_cafe_posts(keyword, max_posts=20):
             
             # 2. 카페 탭 클릭
             try:
-                cafe_tab = page.locator("a.tab:has-text('카페')")
+                cafe_tab = page.locator("a.tab:has-text('카페')").first
                 if cafe_tab.count() > 0:
                     cafe_tab.click()
                     page.wait_for_load_state("networkidle")
