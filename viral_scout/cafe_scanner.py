@@ -68,16 +68,22 @@ def search_cafe_posts(keyword, max_posts=20):
                     if not title or not link:
                         continue
                     
-                    # 카페명 찾기 (같은 블록 안에서)
-                    parent = link_elem.locator('xpath=ancestor::div[contains(@class,"total_wrap") or contains(@class,"api_")]').first
-                    cafe_name_elem = parent.locator(".sub_txt.sub_name, a[href*='cafe.naver.com']:not([class*='title'])").first
-                    cafe_name = cafe_name_elem.inner_text().strip() if cafe_name_elem.count() > 0 else ""
+                    # 부모 요소 찾기
+                    parent = link_elem.locator('xpath=ancestor::li | ancestor::div[contains(@class,"api")]').first
+                    
+                    # 카페명 찾기 (카페 링크에서)
+                    cafe_link = parent.locator("a[href*='cafe.naver.com']:not([class*='title'])").first
+                    cafe_name = ""
+                    if cafe_link.count() > 0:
+                        cafe_name_text = cafe_link.inner_text().strip()
+                        # "강사모-반려견..." 형태면 첫 부분만
+                        cafe_name = cafe_name_text.split('-')[0].split('|')[0].strip()
                     
                     # 작성자
                     author = "카페회원"
                     
-                    # 날짜
-                    date_elem = parent.locator(".sub_time").first
+                    # 날짜 찾기
+                    date_elem = parent.locator(".sub_time, span:has-text('.')").first
                     post_date = date_elem.inner_text().strip() if date_elem.count() > 0 else ""
                     
                     # 미리보기 텍스트
@@ -178,6 +184,7 @@ def scrape_cafe_post_detail(playwright_instance, url, title, author, cafe_name, 
             "content": content[:2000],  # 2000자 제한
             "description": description,
             "comments": comments,
+            "comment_count": len(comments),  # 댓글 수 추가
             "hash": post_hash
         }
     

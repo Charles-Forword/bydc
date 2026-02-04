@@ -277,10 +277,8 @@ def init_google_sheets():
         
         if not cafe_sheet.row_values(1):
             cafe_sheet.append_row([
-                "수집일시", "키워드", "카페명", "제목", "날짜", "링크", "상태",
-                "질문여부", "협찬여부",
-                "요약", "주요내용", "경쟁사언급", "감성", "액션포인트",
-                "댓글_긍정", "댓글_부정", "댓글_중립", "주요불만", "해시"
+                "수집일시", "키워드", "카페명", "제목", "날짜", "링크",
+                "요약", "주요내용", "경쟁사언급", "댓글수", "주요불만", "해시"
             ])
             print(f"✅ 카페 시트 '{CAFE_SHEET_NAME}' 헤더 추가")
             
@@ -408,39 +406,49 @@ def main():
                 cafe_posts = search_cafe_posts(keyword, max_posts=CAFE_MAX_POSTS)
                 
                 for post in cafe_posts:
-                    # 협찬 필터링
+                    # 1. 댓글 수 확인
+                    comment_count = post.get('comment_count', 0)
+                    is_question = is_genuine_question(post['title'], post['content'])
+                    
+                    # 댓글 0개인 글은 질문형태가 아니면 제외
+                    if comment_count == 0 and not is_question:
+                        print(f"   🚫 댓글없음(비질문): {post['title'][:40]}")
+                        continue
+                    
+                    # 2. 협찬 필터링 (선택)
                     if FILTER_SPONSORED:
                         if detect_sponsored_content(post['title'], post['content']):
                             print(f"   🚫 협찬글 제외: {post['title'][:40]}")
                             continue
                     
-                    # 질문 여부 판별
-                    is_question = is_genuine_question(post['title'], post['content']) if PRIORITIZE_QUESTIONS else False
+                    # 3. AI 분석 (요약 + 키워드)
+                    print(f"   🧠 AI 분석 ({len(post['content'])}자)...")
+                    from content_filters import analyze_cafe_content
+                    ai_analysis = analyze_cafe_content(post['title'], post['content'])
                     
-                    # 댓글 분석
-                    comment_stats = analyze_comments_batch(post['comments']) if ANALYZE_COMMENTS else {
-                        "긍정_개수": 0, "부정_개수": 0, "중립_개수": 0, "주요_불만": ""
+                    # 4. 댓글 분석 (주요불만만)
+                    comment_stats = analyze_comments_batch(post['comments']) if ANALYZE_COMMENTS and post['comments'] else {
+                        "주요_불만": ""
                     }
                     
-                    # AI 분석
-                    print(f"   🧠 AI 분석 ({len(post['content'])}자)...")
-                    analysis = analyze_content_with_ai(post['title'], post['content'])
+                    # 5. 경쟁사 언급 확인
+                    competitor_mention = ""
+                    competitor_keywords = ["로얄캐닌", "힐스", "오리젠", "아카나", "네츄럴발란스"]
+                    content_lower = (post['title'] + post['content']).lower()
+                    for comp in competitor_keywords:
+                        if comp.lower() in content_lower:
+                            competitor_mention = comp
+                            break
                     
-                    # 카페 데이터
+                    # 카페 데이터 (간소화된 형식)
                     row_data = [
                         today_str, keyword, post['cafe_name'], post['title'],
-                        post['date'], post['link'], "신규",
-                        "O" if is_question else "",
-                        "",  # 협찬 여부 (이미 필터링됨)
-                        analysis.get("요약", ""),
-                        analysis.get("주요내용", ""),
-                        analysis.get("경쟁사언급", ""),
-                        analysis.get("감성", ""),
-                        analysis.get("액션포인트", ""),
-                        comment_stats["긍정_개수"],
-                        comment_stats["부정_개수"],
-                        comment_stats["중립_개수"],
-                        comment_stats["주요_불만"],
+                        post['date'], post['link'],
+                        ai_analysis.get("요약", "")[:100],  # 100자 제한
+                        ai_analysis.get("주요내용", ""),
+                        competitor_mention,
+                        comment_count,
+                        comment_stats.get("주요_불만", ""),
                         post['hash']
                     ]
                     

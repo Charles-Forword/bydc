@@ -269,6 +269,50 @@ def call_ai_api(prompt, max_tokens=100):
         raise Exception("No AI API key configured")
 
 
+
+
+def analyze_cafe_content(title, content):
+    """
+    카페 게시글 AI 분석 (요약 + 주요내용 키워드 추출)
+    
+    Returns:
+        dict: {"요약": "...", "주요내용": "키워드1, 키워드2, ..."}
+    """
+    if not GEMINI_API_KEY and not OPENAI_API_KEY:
+        return {"요약": title[:100], "주요내용": ""}
+    
+    try:
+        prompt = f"""다음 카페 게시글을 분석해주세요:
+
+제목: {title}
+본문: {content[:800]}
+
+다음 형식으로만 답변:
+요약: (100자 이내로 핵심 요약)
+주요내용: (반려동물/제품 관련 키워드만 콤마로 나열, 예: 강아지, 식사거부, 설사, 보양대첩, 워밍)"""
+
+        ai_response = call_ai_api(prompt, max_tokens=200)
+        
+        # 응답 파싱
+        summary = ""
+        keywords = ""
+        
+        for line in ai_response.split('\n'):
+            if line.startswith("요약:"):
+                summary = line.replace("요약:", "").strip()[:100]
+            elif line.startswith("주요내용:"):
+                keywords = line.replace("주요내용:", "").strip()
+        
+        return {
+            "요약": summary or title[:100],
+            "주요내용": keywords
+        }
+    
+    except Exception as e:
+        print(f"      ⚠️ AI 분석 실패: {e}")
+        return {"요약": title[:100], "주요내용": ""}
+
+
 if __name__ == "__main__":
     # 테스트
     print("=== 협찬 감지 테스트 ===")
