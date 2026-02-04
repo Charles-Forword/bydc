@@ -256,7 +256,7 @@ def init_google_sheet():
         sheet = client.open_by_url(GOOGLE_SHEET_URL).sheet1
         
         if not sheet.row_values(1):
-            sheet.append_row(["수집일시", "키워드", "제목", "날짜", "링크", "상태", "요약", "주요내용", "경쟁사언급", "감성", "액션포인트"])
+            sheet.append_row(["수집일시", "출처", "키워드", "카페명", "제목", "날짜", "링크", "상태", "질문여부", "협찬여부", "요약", "주요내용", "경쟁사언급", "감성", "액션포인트", "댓글_긍정", "댓글_부정", "댓글_중립", "주요불만", "해시"])
             print("✅ 시트 헤더 추가 (Phase 2 포함)")
             
         return sheet
@@ -335,13 +335,16 @@ def main():
                 print(f"   🧠 AI 분석 ({len(content)}자)...")
                 analysis = analyze_content_with_ai(title, content)
                 
+                # 블로그 데이터 (Phase 3 형식)
                 row_data = [
-                    today_str, keyword, title, postdate, link, "신규",
+                    today_str, "블로그", keyword, "", title, postdate, link, "신규",
+                    "", "",  # 질문여부, 협찬여부
                     analysis.get("요약", ""),
                     analysis.get("주요내용", ""),
                     analysis.get("경쟁사언급", ""),
                     analysis.get("감성", ""),
-                    analysis.get("액션포인트", "")
+                    analysis.get("액션포인트", ""),
+                    "", "", "", "", ""  # 댓글 관련 필드
                 ]
                 
                 all_rows.append(row_data)
@@ -359,6 +362,78 @@ def main():
             print("   (API 실패)")
         
         time.sleep(1)
+    
+    # Phase 3: 카페 크롤링
+    if ENABLE_CAFE_CRAWLING:
+        try:
+            from cafe_scanner import search_cafe_posts
+            from content_filters import (
+                detect_sponsored_content,
+                is_genuine_question,
+                analyze_comments_batch
+            )
+            
+            print(f"\n\n🏢 Phase 3: 카페 검색 시작...")
+            cafe_briefing = []
+            
+            for keyword in SEARCH_KEYWORDS:
+                print(f"\n🔍 [카페] '{keyword}'")
+                cafe_posts = search_cafe_posts(keyword, max_posts=CAFE_MAX_POSTS)
+                
+                for post in cafe_posts:
+                    # 협찬 필터링
+                    if FILTER_SPONSORED:
+                        if detect_sponsored_content(post['title'], post['content']):
+                            print(f"   🚫 협찬글 제외: {post['title'][:40]}")
+                            continue
+                    
+                    # 질문 여부 판별
+                    is_question = is_genuine_question(post['title'], post['content']) if PRIORITIZE_QUESTIONS else False
+                    
+                    # 댓글 분석
+                    comment_stats = analyze_comments_batch(post['comments']) if ANALYZE_COMMENTS else {
+                        "긍정_개수": 0, "부정_개수": 0, "중립_개수": 0, "주요_불만": ""
+                    }
+                    
+                    # AI 분석
+                    print(f"   🧠 AI 분석 ({len(post['content'])}자)...")
+                    analysis = analyze_content_with_ai(post['title'], post['content'])
+                    
+                    # 카페 데이터
+                    row_data = [
+                        today_str, "카페", keyword, post['cafe_name'], post['title'],
+                        post['date'], post['link'], "신규",
+                        "O" if is_question else "",
+                        "",  # 협찬 여부 (이미 필터링됨)
+                        analysis.get("요약", ""),
+                        analysis.get("주요내용", ""),
+                        analysis.get("경쟁사언급", ""),
+                        analysis.get("감성", ""),
+                        analysis.get("액션포인트", ""),
+                        comment_stats["긍정_개수"],
+                        comment_stats["부정_개수"],
+                        comment_stats["중립_개수"],
+                        comment_stats["주요_불만"],
+                        post['hash']
+                    ]
+                    
+                    all_rows.append(row_data)
+                    print(f"   ✅ 준비: {post['title'][:40]}")
+                    if comment_stats["부정_개수"] > 0:
+                        print(f"      ⚠️ 부정 댓글 {comment_stats['부정_개수']}개")
+                    
+                    if is_question:
+                        cafe_briefing.append(f"- [질문/{post['cafe_name']}] {post['title'][:40]}")
+                    
+                    time.sleep(0.5)
+                
+                time.sleep(2)  # 카페 간 delay
+            
+            if cafe_briefing:
+                briefing_lines.extend(cafe_briefing[:5])
+        
+        except Exception as e:
+            print(f"\n⚠️ 카페 크롤링 실패: {e}")
 
     # 배치 저장
     if all_rows:
