@@ -7,6 +7,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import time
 import ssl
 import datetime
+import json
+import urllib.request
+import urllib.parse
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -356,7 +359,26 @@ def init_google_sheets():
                 f.write(json_content)
             
             if os.path.exists("service_account.json"):
-                print(f"✅ service_account.json created (size: {os.path.getsize('service_account.json')} bytes)")
+                file_size = os.path.getsize('service_account.json')
+                print(f"✅ service_account.json created (size: {file_size} bytes)")
+                
+                # JSON 유효성 검사 및 필수 키 체크
+                try:
+                    import json as json_module
+                    with open("service_account.json", "r") as check_file:
+                        sa_data = json_module.load(check_file)
+                    
+                    required_keys = ["type", "project_id", "private_key", "client_email", "client_id"]
+                    missing_keys = [k for k in required_keys if k not in sa_data]
+                    
+                    if missing_keys:
+                        print(f"❌ service_account.json에 필수 키 누락: {missing_keys}")
+                        print(f"   현재 키: {list(sa_data.keys())}")
+                    else:
+                        print(f"✅ service_account.json 필수 키 확인 완료")
+                        print(f"   client_email: {sa_data.get('client_email', 'N/A')}")
+                except Exception as json_err:
+                    print(f"❌ service_account.json JSON 파싱 실패: {json_err}")
             else:
                 print("❌ Failed to create service_account.json")
 
