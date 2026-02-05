@@ -1,7 +1,12 @@
+import sys
+import os
+
+# 현재 스크립트 폴더를 Python 경로에 추가 (GitHub Actions 호환)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import time
 import ssl
 import datetime
-import os
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
