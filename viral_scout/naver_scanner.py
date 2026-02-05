@@ -337,9 +337,17 @@ def init_google_sheets():
         if os.environ.get("GITHUB_ACTIONS"):
             print("ℹ️ GitHub Env: Creating service_account.json from secret")
             json_content = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
-            if json_content:
-                with open("service_account.json", "w") as f:
-                    f.write(json_content)
+            if not json_content:
+                print("❌ Error: GOOGLE_SERVICE_ACCOUNT_JSON secret is empty!")
+                raise ValueError("GOOGLE_SERVICE_ACCOUNT_JSON secret is missing")
+            
+            with open("service_account.json", "w") as f:
+                f.write(json_content)
+            
+            if os.path.exists("service_account.json"):
+                print(f"✅ service_account.json created (size: {os.path.getsize('service_account.json')} bytes)")
+            else:
+                print("❌ Failed to create service_account.json")
 
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         creds = ServiceAccountCredentials.from_json_keyfile_name(SERVICE_ACCOUNT_FILE, scope)
@@ -404,11 +412,19 @@ def main():
     
     blog_sheet, cafe_sheet, spreadsheet = init_google_sheets()
     if not blog_sheet:
-        print("시트 연결 실패")
-        return
+        print("❌ 시트 연결 실패로 프로그램을 종료합니다.")
+        sys.exit(1)  # GitHub Actions에서 실패로 처리되도록 Exit Code 1 반환
+
+    print("✅ 시트 연결 성공!")
 
     # [검색설정] 탭에서 키워드 로드 (없으면 config.py 기본값)
     search_keywords = load_keywords_from_sheet(spreadsheet) or SEARCH_KEYWORDS
+    
+    if not search_keywords:
+        print("❌ 검색 키워드가 없습니다. 프로그램을 종료합니다.")
+        sys.exit(1)
+        
+    print(f"🔎 검색 키워드: {search_keywords}")
 
     today_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     blog_rows = []  # 블로그 데이터
