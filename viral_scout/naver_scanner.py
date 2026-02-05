@@ -676,11 +676,46 @@ def main():
             print(f"❌ 카페 배치 실패: {e}")
     print(f"\n🎉 총 {total_count}건 저장 완료!")
     
+    # 텔레그램 보고 메시지 생성
+    blog_new_count = len(blog_rows)
+    cafe_new_count = len(cafe_rows)
+    
+    # 누적 개수 계산 (기존 + 신규)
+    blog_total = len(existing_blog_links) + blog_new_count
+    cafe_total = len(existing_cafe_links) + cafe_new_count if ENABLE_CAFE_CRAWLING else 0
+    
     if total_count > 0:
-        msg = f"🌞 [Viral Scout 모닝 브리핑]\n\n총 {total_count}건 수집!\n({today_str})\n\n"
-        if briefing_lines:
-            msg += "📋 수집 목록:\n" + "\n".join(briefing_lines[:10]) + "\n..."
-        msg += f"\n\n👉 {GOOGLE_SHEET_URL}"
+        # 제목 15자 자르기 함수
+        def truncate_title(title, max_len=15):
+            return title[:max_len] + "..." if len(title) > max_len else title
+        
+        msg = f"오늘 총 {total_count}개의 글이 수집되었습니다!\n\n"
+        msg += f"블로그 : {blog_new_count}/{blog_total}\n"
+        msg += f"카페 : {cafe_new_count}/{cafe_total}\n\n"
+        
+        # 블로그 목록 (최대 5개)
+        if blog_rows:
+            msg += "<블로그>\n"
+            for row in blog_rows[:5]:
+                keyword = row[1]  # B열: 키워드
+                title = row[2]    # C열: 제목
+                msg += f" - [{keyword}] {truncate_title(title)}\n"
+            if len(blog_rows) > 5:
+                msg += f" ... 외 {len(blog_rows) - 5}개\n"
+            msg += "\n"
+        
+        # 카페 목록 (최대 5개)
+        if cafe_rows:
+            msg += "<카페>\n"
+            for row in cafe_rows[:5]:
+                keyword = row[1]  # B열: 키워드
+                title = row[3]    # D열: 제목
+                msg += f" - [{keyword}] {truncate_title(title)}\n"
+            if len(cafe_rows) > 5:
+                msg += f" ... 외 {len(cafe_rows) - 5}개\n"
+            msg += "\n"
+        
+        msg += f"👉 {GOOGLE_SHEET_URL}"
         send_telegram_message(msg)
     else:
         print("신규 데이터 없음")
