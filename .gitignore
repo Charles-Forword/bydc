@@ -37,7 +37,7 @@ ENV/
 
 # Secrets & API Keys (CRITICAL: Never commit these!)
 service_account.json
-viral_scout/config.py
+# viral_scout/config.py (Safe to commit, uses env vars)
 *.env
 .env.local
 .env.*.local

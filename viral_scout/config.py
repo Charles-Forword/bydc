@@ -1,0 +1,88 @@
+# 🔐 Environment Variables Template
+# Copy this file to viral_scout/config.py and fill in your actual values
+# NEVER commit config.py to Git!
+
+import os
+
+# 검색 설정 - 고객 문제/니즈 기반 키워드
+SEARCH_KEYWORDS = [
+    "강아지 사료 추천", "고양이 사료 추천",
+    "알러지 사료", "눈물자국 사료", 
+    "설사 사료", "소화불량 사료",
+    "기호성 낮음", "사료 안먹어요",
+    "피부병 사료", "저알러지 사료",
+    "곤충 사료", "밀웜 사료",
+    "강아지 화식", "고양이 습식"
+]
+DISPLAY_COUNT = 20
+SORT_MODE = "date"
+
+# 필터링 설정
+EXCLUDE_KEYWORDS = ["한식대첩", "삼계탕", "이우철", "누룽지", "맛집", "레시피", "요리", "중식당", "인테리어", "입주청소", "여행"]
+REQUIRED_KEYWORDS = ["강아지", "반려견", "멍", "댕댕", "고양이", "반려묘", "냥", "펫", "사료", "캔", "간식", "화식", "습식"]
+USE_AI_FILTER = False
+
+# 콘텐츠 분석 설정
+ENABLE_CONTENT_SCRAPING = False
+ENABLE_AI_ANALYSIS = True
+ANALYZE_ALL = True
+AI_PROVIDER = "gemini"  # "gemini" 또는 "openai"
+
+# 카페 크롤링 설정
+ENABLE_CAFE_CRAWLING = True
+CAFE_MAX_POSTS = 10
+PRIORITIZE_QUESTIONS = True
+FILTER_SPONSORED = True
+ANALYZE_COMMENTS = True
+
+# 구글 스프레드시트 설정
+GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1c_fCvWFUpl2tgmSDCkv194beoLulmXhn1--oHwA_VK0/edit"
+BLOG_SHEET_NAME = "블로그"
+CAFE_SHEET_NAME = "카페"
+SERVICE_ACCOUNT_FILE = "service_account.json"
+
+# ⚠️ SECRETS - 환경변수에서만 읽음 (하드코딩 금지!)
+# GitHub Actions: Repository Settings > Secrets에서 설정
+# 로컬 실행: .env 파일 생성 후 export $(cat .env | xargs) 실행
+NAVER_CLIENT_ID = os.environ.get("NAVER_CLIENT_ID")
+NAVER_CLIENT_SECRET = os.environ.get("NAVER_CLIENT_SECRET")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+
+# Validation (필수 환경변수 체크)
+missing_vars = []
+
+# Naver API (필수)
+if not NAVER_CLIENT_ID:
+    missing_vars.append("NAVER_CLIENT_ID")
+if not NAVER_CLIENT_SECRET:
+    missing_vars.append("NAVER_CLIENT_SECRET")
+
+# AI API (둘 중 하나는 필수)
+if not GEMINI_API_KEY and not OPENAI_API_KEY:
+    print("⚠️ Warning: No AI API key found. AI analysis will be disabled.")
+    print("   Set GEMINI_API_KEY or OPENAI_API_KEY environment variable to enable AI features.")
+
+# Telegram (선택사항)
+if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+    print("ℹ️  Info: Telegram notification is disabled. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to enable.")
+
+# 필수 변수 누락 시 에러
+if missing_vars:
+    error_msg = f"""
+❌ 필수 환경변수가 설정되지 않았습니다: {', '.join(missing_vars)}
+
+설정 방법:
+1. .env.example을 .env로 복사:
+   cp .env.example .env
+
+2. .env 파일을 편집하여 실제 API 키 입력
+
+3. 환경변수 로드:
+   export $(cat .env | xargs)
+
+4. 다시 스크립트 실행
+"""
+    raise ValueError(error_msg)
