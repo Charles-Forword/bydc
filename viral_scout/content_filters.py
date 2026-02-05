@@ -313,6 +313,29 @@ def extract_competitors(title, content):
     return ", ".join(found_competitors) if found_competitors else ""
 
 
+def clean_ai_response(text):
+    """
+    AI 응답에서 마크다운 기호(**), 이모지 등 제거
+    """
+    import re
+    # ** 마크다운 제거
+    text = text.replace("**", "")
+    text = text.replace("*", "")
+    # 이모지 제거 (유니코드 이모지 범위)
+    emoji_pattern = re.compile("["
+        u"\U0001F600-\U0001F64F"  # emoticons
+        u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+        u"\U0001F680-\U0001F6FF"  # transport & map symbols
+        u"\U0001F1E0-\U0001F1FF"  # flags
+        u"\U00002702-\U000027B0"
+        u"\U000024C2-\U0001F251"
+        "]+", flags=re.UNICODE)
+    text = emoji_pattern.sub('', text)
+    # 불필요한 공백 정리
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+
 def analyze_cafe_content(title, content):
     """
     카페 게시글 AI 요약 (본문 요약만, 키워드는 별도 함수)
@@ -330,16 +353,23 @@ def analyze_cafe_content(title, content):
         clean_title = remove_hashtags(title)
         clean_content = remove_hashtags(content)
         
-        # 짧은 프롬프트 (토큰 절약)
-        prompt = f"""다음 글을 100자 이내로 요약:
+        # 명확한 프롬프트 (반려동물 사료 관련 요약)
+        prompt = f"""반려동물 사료 관련 카페 글을 요약해주세요.
 
 제목: {clean_title}
-본문: {clean_content[:300]}
+본문: {clean_content[:500]}
 
-요약만 작성 (해시태그 제외):"""
+규칙:
+1. 핵심 내용만 100자 이내로 요약
+2. 글쓴이의 문제/고민, 사용한 제품, 결과/반응 위주로 작성
+3. 마크다운(**), 이모지, 해시태그 사용 금지
+4. "요약:", "결론:" 같은 라벨 없이 바로 내용만 작성
 
-        ai_response = call_ai_api(prompt, max_tokens=100)
-        summary = ai_response.strip()[:100]
+요약:"""
+
+        ai_response = call_ai_api(prompt, max_tokens=120)
+        # 마크다운, 이모지 제거 후처리
+        summary = clean_ai_response(ai_response)[:100]
         
         return {"요약": summary or clean_content[:100]}
     

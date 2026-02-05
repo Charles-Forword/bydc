@@ -149,6 +149,24 @@ def check_relevance_with_ai(title, description):
         return True
 
 
+def clean_ai_text(text):
+    """AI 응답에서 마크다운/이모지 제거"""
+    import re
+    if not text:
+        return ""
+    text = text.replace("**", "").replace("*", "")
+    emoji_pattern = re.compile("["
+        u"\U0001F600-\U0001F64F"
+        u"\U0001F300-\U0001F5FF"
+        u"\U0001F680-\U0001F6FF"
+        u"\U0001F1E0-\U0001F1FF"
+        u"\U00002702-\U000027B0"
+        u"\U000024C2-\U0001F251"
+        "]+", flags=re.UNICODE)
+    text = emoji_pattern.sub('', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+
 def analyze_content_with_ai(title, content):
     """AI로 블로그 본문 분석하여 구조화된 인사이트 추출"""
     if not ENABLE_AI_ANALYSIS:
@@ -166,32 +184,34 @@ def analyze_content_with_ai(title, content):
         import requests
         import json as json_module
         
-        prompt = f"""다음 블로그 글을 분석해주세요:
+        prompt = f"""반려동물 사료 관련 블로그 글을 분석해주세요.
 
 제목: {title}
 본문: {content[:1500]}
 
-아래 JSON 형식으로만 응답해주세요:
+규칙:
+- 마크다운(**), 이모지, 해시태그 사용 금지
+- 각 필드는 간결하게 작성
+- 해당 내용이 없으면 빈 문자열로 작성
+
+아래 JSON 형식으로만 응답 (다른 말 없이 JSON만):
 {{
-  "요약": "핵심 내용 3줄 요약",
-  "주요내용": "고객이 언급한 제품 특징",
-  "경쟁사언급": "언급된 경쟁 브랜드명 (없으면 빈칸)",
-  "감성": "긍정 또는 중립 또는 부정",
-  "액션포인트": "보양대첩 개선사항"
+  "요약": "핵심 내용 2-3문장 요약",
+  "주요내용": "언급된 제품 특징이나 효과",
+  "경쟁사언급": "언급된 경쟁 브랜드명만 (없으면 빈칸)",
+  "감성": "긍정/중립/부정 중 하나",
+  "액션포인트": "개선 제안사항"
 }}"""
 
         if AI_PROVIDER == "gemini":
-            # Use gemini-2.0-flash (verified via ListModels API)
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
-
 
             data = {
                 "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"temperature": 0.3, "maxOutputTokens": 500}
+                "generationConfig": {"temperature": 0.2, "maxOutputTokens": 500}
             }
             response = requests.post(url, json=data, timeout=15)
 
-            
             if response.status_code == 200:
                 result = response.json()
                 ai_response = result['candidates'][0]['content']['parts'][0]['text'].strip()
@@ -204,7 +224,7 @@ def analyze_content_with_ai(title, content):
             data = {
                 "model": "gpt-4o-mini",
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.3,
+                "temperature": 0.2,
                 "max_tokens": 500
             }
             response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=15)
@@ -224,9 +244,13 @@ def analyze_content_with_ai(title, content):
                     ai_response = ai_response[4:]
             
             analysis = json_module.loads(ai_response)
+            # 각 필드에서 마크다운/이모지 제거
+            for key in analysis:
+                if isinstance(analysis[key], str):
+                    analysis[key] = clean_ai_text(analysis[key])
             return analysis
         except:
-            return {"요약": ai_response[:100], "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
+            return {"요약": clean_ai_text(ai_response[:100]), "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
             
     except Exception as e:
         print(f"      ⚠️ AI 오류: {str(e)[:50]}")
