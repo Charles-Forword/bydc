@@ -695,7 +695,7 @@ def main():
         
         # 블로그 목록 (최대 5개)
         if blog_rows:
-            msg += "<블로그>\n"
+            msg += "【블로그】\n"
             for row in blog_rows[:5]:
                 keyword = row[1]  # B열: 키워드
                 title = row[2]    # C열: 제목
@@ -706,7 +706,7 @@ def main():
         
         # 카페 목록 (최대 5개)
         if cafe_rows:
-            msg += "<카페>\n"
+            msg += "【카페】\n"
             for row in cafe_rows[:5]:
                 keyword = row[1]  # B열: 키워드
                 title = row[3]    # D열: 제목
