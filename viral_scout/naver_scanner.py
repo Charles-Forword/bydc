@@ -690,8 +690,8 @@ def main():
             return title[:max_len] + "..." if len(title) > max_len else title
         
         msg = f"오늘 총 {total_count}개의 글이 수집되었습니다!\n\n"
-        msg += f"블로그 : {blog_new_count}/{blog_total}\n"
-        msg += f"카페 : {cafe_new_count}/{cafe_total}\n\n"
+        msg += f"블로그 : +{blog_new_count}/{blog_total}\n"
+        msg += f"카페 : +{cafe_new_count}/{cafe_total}\n\n"
         
         # 블로그 목록 (최대 5개)
         if blog_rows:
