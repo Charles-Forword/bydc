@@ -337,9 +337,20 @@ def init_google_sheets():
         if os.environ.get("GITHUB_ACTIONS"):
             print("ℹ️ GitHub Env: Creating service_account.json from secret")
             json_content = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+            
             if not json_content:
                 print("❌ Error: GOOGLE_SERVICE_ACCOUNT_JSON secret is empty!")
                 raise ValueError("GOOGLE_SERVICE_ACCOUNT_JSON secret is missing")
+            
+            # Base64 디코딩 시도 (JSON이 아니거나 '{'로 시작하지 않으면 Base64로 간주)
+            if not json_content.strip().startswith("{"):
+                try:
+                    import base64
+                    decoded_bytes = base64.b64decode(json_content)
+                    json_content = decoded_bytes.decode('utf-8')
+                    print("ℹ️ Base64 encoded secret detected and decoded.")
+                except Exception as e:
+                    print(f"⚠️ Base64 decode failed, using raw content: {e}")
             
             with open("service_account.json", "w") as f:
                 f.write(json_content)
