@@ -13,50 +13,7 @@ def generate_post_hash(author, title, content):
     unique_str = f"{author}{title}{content[:100]}"
     return hashlib.md5(unique_str.encode()).hexdigest()
 
-def extract_representative_image(page, iframe):
-    """
-    카페 글에서 첫 번째 이미지 URL 추출
-    
-    Args:
-        page: Playwright page 객체
-        iframe: iframe locator
-    
-    Returns:
-        str: 이미지 URL (없으면 빈 문자열)
-    """
-    try:
-        # 여러 가능한 이미지 셀렉터 시도
-        image_selectors = [
-            'img.se-image-resource',  # 스마트에디터 이미지
-            'img[src*="cafeptthumb"]',  # 카페 썸네일
-            'img[src*="cafeskthumb"]',  # 카페 썸네일
-            'img[src*="cafefiles"]',  # 카페 원본 이미지
-            '.se-main-container img',  # 스마트에디터 컨테이너 내 이미지
-            '.ContentRenderer img',  # 콘텐츠 렌더러 내 이미지
-            'img[src^="https://"]'  # HTTPS 이미지 (최후 수단)
-        ]
-        
-        for selector in image_selectors:
-            try:
-                img = iframe.locator(selector).first
-                if img.count() > 0:
-                    src = img.get_attribute('src')
-                    if src:
-                        # 썸네일을 원본으로 변환
-                        if 'cafeptthumb' in src or 'cafeskthumb' in src:
-                            # 썸네일 → 원본 변환
-                            src = src.replace('cafeptthumb', 'cafefiles')
-                            src = src.replace('cafeskthumb', 'cafefiles')
-                            # 쿼리 파라미터 제거 (원본 이미지)
-                            src = src.split('?')[0]
-                        return src
-            except:
-                continue
-        
-        return ""
-    except Exception as e:
-        print(f"      ⚠️ 이미지 추출 실패: {str(e)[:50]}")
-        return ""
+
 
 def improve_cafe_name_extraction(page, initial_cafe_name):
     """
@@ -230,10 +187,7 @@ def scrape_cafe_post_detail(playwright_instance, url, title, author, cafe_name, 
         # 카페명 개선 (상세 페이지에서 재확인)
         improved_cafe_name = improve_cafe_name_extraction(page, cafe_name)
         
-        # 대표이미지 추출
-        representative_image = extract_representative_image(page, iframe)
-        if representative_image:
-            print(f"      🖼️ 이미지 발견: {representative_image[:50]}...")
+
         
         # 본문 추출
         content = ""
@@ -291,7 +245,7 @@ def scrape_cafe_post_detail(playwright_instance, url, title, author, cafe_name, 
             "date": post_date,
             "content": content[:2000],  # 2000자 제한
             "description": description,
-            "representative_image": representative_image,  # 대표이미지 추가
+
             "comments": comments,
             "comment_count": len(comments),  # 댓글 수 추가
             "hash": post_hash
