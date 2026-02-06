@@ -368,10 +368,19 @@ def analyze_cafe_content(title, content):
 요약:"""
 
         ai_response = call_ai_api(prompt, max_tokens=120)
+        
+        # 디버깅: AI 원본 응답 출력
+        print(f"      📝 AI 원본 응답: {ai_response[:100]}...")
+        
         # 마크다운, 이모지 제거 후처리
         summary = clean_ai_response(ai_response)[:100]
         
-        return {"요약": summary or clean_content[:100]}
+        # 빈 응답이면 폴백
+        if not summary or len(summary) < 10:
+            print(f"      ⚠️ AI 요약 너무 짧음, 본문으로 대체")
+            summary = clean_content[:100] if clean_content else title[:100]
+        
+        return {"요약": summary}
     
     except Exception as e:
         print(f"      ⚠️ AI 요약 실패: {e}")

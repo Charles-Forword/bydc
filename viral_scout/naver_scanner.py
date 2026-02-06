@@ -238,6 +238,9 @@ def analyze_content_with_ai(title, content):
         
         # JSON 파싱
         try:
+            # 디버깅: AI 원본 응답 출력 (처음 200자)
+            print(f"      📝 AI 원본 응답: {ai_response[:200]}...")
+            
             if "```" in ai_response:
                 ai_response = ai_response.split("```")[1]
                 if ai_response.startswith("json"):
@@ -249,8 +252,10 @@ def analyze_content_with_ai(title, content):
                 if isinstance(analysis[key], str):
                     analysis[key] = clean_ai_text(analysis[key])
             return analysis
-        except:
-            return {"요약": clean_ai_text(ai_response[:100]), "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
+        except Exception as parse_err:
+            print(f"      ⚠️ JSON 파싱 실패: {parse_err}")
+            # JSON 파싱 실패 시 빈 값 반환 (이상한 텍스트 저장 방지)
+            return {"요약": "", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
             
     except Exception as e:
         print(f"      ⚠️ AI 오류: {str(e)[:50]}")
