@@ -524,7 +524,9 @@ def main():
         
     print(f"🔎 검색 키워드: {search_keywords}")
 
-    today_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # KST (UTC+9) 설정
+    kst = datetime.timezone(datetime.timedelta(hours=9))
+    today_str = datetime.datetime.now(kst).strftime("%Y-%m-%d %H:%M:%S")
     blog_rows = []  # 블로그 데이터
     cafe_rows = []  # 카페 데이터
     briefing_lines = []
