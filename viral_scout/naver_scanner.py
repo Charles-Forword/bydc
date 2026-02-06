@@ -466,9 +466,10 @@ def init_google_sheets():
         except:
             blog_sheet = spreadsheet.sheet1
         
-        if not blog_sheet.row_values(1):
-            blog_sheet.append_row(["수집일시", "키워드", "제목", "날짜", "링크", "요약", "주요내용", "브랜드언급"])
-            print(f"✅ 블로그 시트 '{BLOG_SHEET_NAME}' 헤더 추가")
+        # if not blog_sheet.row_values(1):
+        #     blog_sheet.append_row(["수집일시", "키워드", "제목", "날짜", "링크", "요약", "주요내용", "브랜드언급"])
+        #     print(f"✅ 블로그 시트 '{BLOG_SHEET_NAME}' 헤더 추가")
+        print(f"✅ 블로그 시트 '{BLOG_SHEET_NAME}' 연결 성공 (헤더 자동생성 안함)")
         
         # 카페 시트 (신규)
         try:
@@ -477,12 +478,13 @@ def init_google_sheets():
             print(f"📋 '{CAFE_SHEET_NAME}' 시트 생성 중...")
             cafe_sheet = spreadsheet.add_worksheet(title=CAFE_SHEET_NAME, rows=1000, cols=20)
         
-        if not cafe_sheet.row_values(1):
-            cafe_sheet.append_row([
-                "수집일시", "키워드", "카페명", "제목", "날짜", "링크",
-                "본문내용요약", "댓글수", "핵심연관키워드", "경쟁사언급"
-            ])
-            print(f"✅ 카페 시트 '{CAFE_SHEET_NAME}' 헤더 추가")
+        # if not cafe_sheet.row_values(1):
+        #     cafe_sheet.append_row([
+        #         "수집일시", "키워드", "카페명", "제목", "날짜", "링크",
+        #         "본문내용요약", "댓글수", "핵심연관키워드", "경쟁사언급"
+        #     ])
+        #     print(f"✅ 카페 시트 '{CAFE_SHEET_NAME}' 헤더 추가")
+        print(f"✅ 카페 시트 '{CAFE_SHEET_NAME}' 연결 성공 (헤더 자동생성 안함)")
             
         return blog_sheet, cafe_sheet, spreadsheet
     except Exception as e:
