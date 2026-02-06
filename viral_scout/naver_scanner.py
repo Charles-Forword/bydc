@@ -690,8 +690,8 @@ def main():
     cafe_total = len(existing_cafe_links) + cafe_new_count if ENABLE_CAFE_CRAWLING else 0
     
     if total_count > 0:
-        # 제목 15자 자르기 함수
-        def truncate_title(title, max_len=15):
+        # 제목 30자 자르기 함수
+        def truncate_title(title, max_len=30):
             return title[:max_len] + "..." if len(title) > max_len else title
         
         msg = f"오늘 총 {total_count}개의 글이 수집되었습니다!\n\n"
