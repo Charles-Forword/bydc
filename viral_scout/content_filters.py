@@ -354,33 +354,51 @@ def analyze_cafe_content(title, content):
         clean_content = remove_hashtags(content)
         
         # 명확한 프롬프트 (반려동물 사료 관련 요약)
+        # 명확한 프롬프트 (반려동물 사료 관련 요약)
         prompt = f"""반려동물 사료 관련 카페 글을 요약해주세요.
 
 제목: {clean_title}
 본문: {clean_content[:500]}
 
 규칙:
-1. 핵심 내용만 100자 이내로 요약
-2. 글쓴이의 문제/고민, 사용한 제품, 결과/반응 위주로 작성
-3. 마크다운(**), 이모지, 해시태그 사용 금지
-4. "요약:", "결론:" 같은 라벨 없이 바로 내용만 작성
+1. 이 글이 "강아지" 또는 "고양이"와 직접적으로 관련된 글인지 가장 먼저 판단하세요. (소라게, 햄스터, 사람 음식 등은 False)
+2. 핵심 내용만 100자 이내로 요약
+3. 글쓴이의 문제/고민, 사용한 제품, 결과/반응 위주로 작성
+4. 마크다운(**), 이모지, 해시태그 사용 금지
+5. "요약:", "결론:" 같은 라벨 없이 바로 내용만 작성
 
-요약:"""
+아래 형식으로 응답:
+관련여부: YES 또는 NO
+요약: (요약 내용)"""
 
-        ai_response = call_ai_api(prompt, max_tokens=120)
+        ai_response = call_ai_api(prompt, max_tokens=150)
         
         # 디버깅: AI 원본 응답 출력
         print(f"      📝 AI 원본 응답: {ai_response[:100]}...")
         
+        # 관련여부 파싱
+        is_relevant = True
+        summary_text = ai_response
+        
+        if "관련여부:" in ai_response:
+            parts = ai_response.split("요약:")
+            if len(parts) >= 1:
+                relevant_part = parts[0]
+                if "NO" in relevant_part.upper():
+                    is_relevant = False
+                
+                if len(parts) > 1:
+                    summary_text = parts[1].strip()
+        
         # 마크다운, 이모지 제거 후처리
-        summary = clean_ai_response(ai_response)[:100]
+        summary = clean_ai_response(summary_text)[:100]
         
         # 빈 응답이면 폴백
         if not summary or len(summary) < 10:
             print(f"      ⚠️ AI 요약 너무 짧음, 본문으로 대체")
             summary = clean_content[:100] if clean_content else title[:100]
         
-        return {"요약": summary}
+        return {"요약": summary, "반려동물관련": is_relevant}
     
     except Exception as e:
         print(f"      ⚠️ AI 요약 실패: {e}")

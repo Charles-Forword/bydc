@@ -211,12 +211,14 @@ def analyze_content_with_ai(title, content):
 본문: {content[:1500]}
 
 규칙:
-- 마크다운(**), 이모지, 해시태그 사용 금지
-- 각 필드는 간결하게 작성
-- 해당 내용이 없으면 빈 문자열로 작성
+1. 이 글이 "강아지" 또는 "고양이"와 직접적으로 관련된 글인지 판단하세요. (소라게, 햄스터, 사람 음식 등은 False)
+2. 마크다운(**), 이모지, 해시태그 사용 금지
+3. 각 필드는 간결하게 작성
+4. 해당 내용이 없으면 빈 문자열로 작성
 
 아래 JSON 형식으로만 응답 (다른 말 없이 JSON만):
 {{
+  "반려동물관련": true 또는 false,
   "요약": "핵심 내용 2-3문장 요약",
   "주요내용": "언급된 제품 특징이나 효과",
   "경쟁사언급": "언급된 경쟁 브랜드명만 (없으면 빈칸)",
@@ -229,7 +231,7 @@ def analyze_content_with_ai(title, content):
 
             data = {
                 "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"temperature": 0.2, "maxOutputTokens": 500}
+                "generationConfig": {"temperature": 0.2, "maxOutputTokens": 600}
             }
             response = requests.post(url, json=data, timeout=15)
 
@@ -238,7 +240,7 @@ def analyze_content_with_ai(title, content):
                 ai_response = result['candidates'][0]['content']['parts'][0]['text'].strip()
             else:
                 print(f"      ⚠️ Gemini 실패 ({response.status_code})")
-                return {"요약": "", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
+                return {"반려동물관련": True, "요약": "", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
         
         else:
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_API_KEY}"}
@@ -246,7 +248,7 @@ def analyze_content_with_ai(title, content):
                 "model": "gpt-4o-mini",
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.2,
-                "max_tokens": 500
+                "max_tokens": 600
             }
             response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=15)
             
@@ -255,7 +257,7 @@ def analyze_content_with_ai(title, content):
                 ai_response = result['choices'][0]['message']['content'].strip()
             else:
                 print(f"      ⚠️ OpenAI 실패 ({response.status_code})")
-                return {"요약": "", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
+                return {"반려동물관련": True, "요약": "", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
         
         # JSON 파싱
         try:
@@ -272,15 +274,20 @@ def analyze_content_with_ai(title, content):
             for key in analysis:
                 if isinstance(analysis[key], str):
                     analysis[key] = clean_ai_text(analysis[key])
+            
+            # 기본값 True 처리 (필드가 없을 경우)
+            if "반려동물관련" not in analysis:
+                analysis["반려동물관련"] = True
+                
             return analysis
         except Exception as parse_err:
             print(f"      ⚠️ JSON 파싱 실패: {parse_err}")
             # JSON 파싱 실패 시 빈 값 반환 (이상한 텍스트 저장 방지)
-            return {"요약": "", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
+            return {"반려동물관련": True, "요약": "", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
             
     except Exception as e:
         print(f"      ⚠️ AI 오류: {str(e)[:50]}")
-        return {"요약": "", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
+        return {"반려동물관련": True, "요약": "", "주요내용": "", "경쟁사언급": "", "감성": "", "액션포인트": ""}
 
 
 def send_telegram_message(message):
@@ -566,16 +573,17 @@ def main():
                     print(f"   🚫 제외(필수키워드): {title[:40]}")
                     continue
                 
-                if not check_relevance_with_ai(title, description):
-                    print(f"   🚫 제외(AI판단): {title[:40]}")
-                    continue
-                
                 # description을 본문으로 사용 (150자 미리보기, 크롤링보다 안정적)
                 content = description
                 
                 print(f"   🧠 AI 분석 ({len(content)}자)...")
                 analysis = analyze_content_with_ai(title, content)
                 
+                # AI가 반려동물 관련 없다고 판단하면 제외
+                if not analysis.get("반려동물관련", True):
+                    print(f"   🚫 제외(AI판단): {title[:40]}")
+                    continue
+
                 # 블로그 데이터 (간결 형식)
                 row_data = [
                     today_str, keyword, title, postdate, link, "신규",
@@ -648,6 +656,11 @@ def main():
                     print(f"   🧠 AI 요약 중...")
                     from content_filters import analyze_cafe_content
                     ai_analysis = analyze_cafe_content(post['title'], post['content'])
+                    
+                    # AI가 반려동물 관련 없다고 판단하면 제외
+                    if not ai_analysis.get("반려동물관련", True):
+                        print(f"   🚫 제외(AI판단): {post['title'][:40]}")
+                        continue
                     
                     # 4. 핵심 키워드 추출 (I열: 지정 키워드만)
                     keywords_str = extract_keywords_hybrid(post['title'], post['content'])
