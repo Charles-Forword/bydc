@@ -63,7 +63,7 @@ function showSortingWizard() {
     if (taskChoice === "0") {
         // 수집 순서대로 (A열: 수집일시 오름차순)
         range.sort({ column: 1, ascending: true });
-        ss.toast(`${sheetName} 시트를 수집 순서대로 정렬했습니다.`, "완료");
+        ss.toast(`${sheetName} 시트 정렬 완료! (기준: 수집순서)`, "✅ 처리 완료", 5);
 
     } else if (taskChoice === "1") {
         // 작성 일자별
@@ -89,7 +89,7 @@ function showSortingWizard() {
 
         range.sort({ column: dateCol, ascending: ascending });
         const orderText = ascending ? "오래된순" : "최신순";
-        ss.toast(`${sheetName} 시트를 작성일자 ${orderText}으로 정렬했습니다.`, "완료");
+        ss.toast(`${sheetName} 시트 정렬 완료! (기준: 작성일자 ${orderText})`, "✅ 처리 완료", 5);
 
     } else {
         ui.alert('잘못된 입력입니다.');
