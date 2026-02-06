@@ -10,8 +10,29 @@ import datetime
 import json
 import urllib.request
 import urllib.parse
+from urllib.parse import urlparse
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+
+def normalize_cafe_url(url):
+    """
+    네이버 카페 URL 정규화 (파라미터 제거)
+    예: https://cafe.naver.com/cafe_name/1234?art=... -> https://cafe.naver.com/cafe_name/1234
+    """
+    if not url:
+        return ""
+    
+    try:
+        parsed = urlparse(url)
+        # 네이버 카페 도메인인지 확인
+        if "cafe.naver.com" in parsed.netloc:
+            # path가 있으면 쿼리 파라미터 제거하고 반환
+            if parsed.path and parsed.path != "/":
+                return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        
+        return url
+    except:
+        return url
 
 # .env 파일 자동 로드
 try:
@@ -293,13 +314,18 @@ def get_existing_links(sheet, link_column_index):
         link_column_index: 링크가 있는 열 인덱스 (0-based)
     
     Returns:
-        set: 기존 링크 집합
+        set: 기존 링크 집합 (정규화됨)
     """
     try:
         all_values = sheet.get_all_values()
         if len(all_values) <= 1:
             return set()
-        links = {row[link_column_index] for row in all_values[1:] if len(row) > link_column_index and row[link_column_index]}
+        
+        links = set()
+        for row in all_values[1:]:
+            if len(row) > link_column_index and row[link_column_index]:
+                # URL 정규화하여 저장 (비교 정확도 향상)
+                links.add(normalize_cafe_url(row[link_column_index]))
         return links
     except Exception as e:
         print(f"      ⚠️ 기존 링크 조회 실패: {e}")
@@ -351,7 +377,17 @@ def filter_new_posts(posts, existing_links, source_type="카페"):
     Returns:
         list: 중복 제외된 신규 게시글
     """
-    new_posts = [p for p in posts if p.get('link') not in existing_links]
+    new_posts = []
+    for p in posts:
+        raw_link = p.get('link')
+        # 링크 정규화 (파라미터 제거 등)
+        normalized_link = normalize_cafe_url(raw_link)
+        
+        if normalized_link not in existing_links:
+            # 저장될 데이터도 정규화된 링크로 업데이트
+            p['link'] = normalized_link
+            new_posts.append(p)
+            
     duplicates = len(posts) - len(new_posts)
     
     if duplicates > 0:
