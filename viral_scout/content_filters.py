@@ -362,10 +362,11 @@ def analyze_cafe_content(title, content):
 
 규칙:
 1. 이 글이 "강아지" 또는 "고양이"와 직접적으로 관련된 글인지 가장 먼저 판단하세요. (소라게, 햄스터, 사람 음식 등은 False)
-2. 핵심 내용만 100자 이내로 요약
+2. 핵심 내용만 100~130자 내외로 요약 (문장이 끊기지 않도록 주의)
 3. 글쓴이의 문제/고민, 사용한 제품, 결과/반응 위주로 작성
 4. 마크다운(**), 이모지, 해시태그 사용 금지
 5. "요약:", "결론:" 같은 라벨 없이 바로 내용만 작성
+6. 반드시 완전한 문장('다'로 끝남)으로 종료
 
 아래 형식으로 응답:
 관련여부: YES 또는 NO
@@ -390,8 +391,8 @@ def analyze_cafe_content(title, content):
                 if len(parts) > 1:
                     summary_text = parts[1].strip()
         
-        # 마크다운, 이모지 제거 후처리
-        summary = clean_ai_response(summary_text)[:100]
+        # 마크다운, 이모지 제거 후처리 (길이 여유있게 130자)
+        summary = clean_ai_response(summary_text)[:130]
         
         # 빈 응답이면 폴백
         if not summary or len(summary) < 10:
