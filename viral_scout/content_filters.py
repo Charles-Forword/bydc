@@ -270,10 +270,19 @@ CORE_KEYWORDS = [
     "기력", "활력", "식욕", "설사", "거부"
 ]
 
-# 경쟁사 목록 (K열용)
+# 경쟁사/브랜드 목록 (J열/K열용)
+# 한국 주요 사료/간식 브랜드 (약 50개)
 COMPETITORS = [
-    "건강백서", "밥이보약", "듀먼", "국개대표",
-    "퓨리나", "힐스", "로얄캐닌"
+    "보양대첩", "로얄캐닌", "힐스", "퓨리나", "네추럴코어", 
+    "건강백서", "밥이보약", "듀먼", "하림", "더리얼", 
+    "시저", "ANF", "오리젠", "아카나", "지위픽", 
+    "K9", "스텔라앤츄이스", "빅독", "닥터맘마", "레이앤이본", 
+    "도거박스", "웰츠", "나우", "고", "닥터독", 
+    "몽슈슈", "페디그리", "프로플랜", "이나바", "템테이션", 
+    "위스카스", "쉐바", "짐펫", "조공", "잇츄", 
+    "핏펫", "국개대표", "알모네이쳐", "윔지스", "그리니즈",
+    "포켄스", "브리지테일", "페스룸", "바잇미", "릴리스키친",
+    "세니메드", "스페시픽", "벨릭서", "하이포알러제닉"
 ]
 
 
@@ -295,22 +304,43 @@ def extract_keywords_hybrid(title, content):
     return ", ".join(found_keywords) if found_keywords else ""
 
 
+def extract_brands_regex(text):
+    """
+    텍스트에서 브랜드명 추출 (Regex/List 기반)
+    """
+    found_brands = set()
+    for brand in COMPETITORS:
+        if brand in text:
+            found_brands.add(brand)
+    return list(found_brands)
+
+def merge_and_sort_brands(ai_brands_str, text):
+    """
+    AI 추출 브랜드와 Regex 추출 브랜드를 병합하고 정렬
+    규칙: '보양대첩' 최우선, 그 외에는 발견된 순서 또는 가나다순
+    """
+    # 1. Regex로 확실한 브랜드 찾기
+    regex_brands = extract_brands_regex(text)
+    
+    # 2. AI 결과를 리스트로 변환
+    ai_brands = [b.strip() for b in ai_brands_str.split(',') if b.strip()]
+    
+    # 3. 병합 (Set으로 중복 제거)
+    all_brands = set(regex_brands + ai_brands)
+    
+    # 4. 정렬
+    sorted_brands = sorted(list(all_brands))
+    
+    # 5. 보양대첩 최우선 처리
+    if "보양대첩" in sorted_brands:
+        sorted_brands.remove("보양대첩")
+        sorted_brands.insert(0, "보양대첩")
+        
+    return ", ".join(sorted_brands)
+
 def extract_competitors(title, content):
-    """
-    경쟁사 언급 추출 (K열: 경쟁사언급)
-    지정된 경쟁사 목록에서만 매칭
-    
-    Returns:
-        str: 콤마로 구분된 경쟁사 문자열
-    """
-    found_competitors = []
-    full_text = (title + " " + content[:1000])
-    
-    for competitor in COMPETITORS:
-        if competitor in full_text:
-            found_competitors.append(competitor)
-    
-    return ", ".join(found_competitors) if found_competitors else ""
+    """(Deprecated) Legacy function, kept for compatibility if needed"""
+    return merge_and_sort_brands("", title + " " + content)
 
 
 def clean_ai_response(text):
@@ -391,7 +421,10 @@ def analyze_cafe_content(title, content):
             # 마크다운, 이모지 제거 후처리
             summary = clean_ai_response(analysis.get("요약", ""))[:150]
             is_relevant = analysis.get("반려동물관련", True)
-            brand_mention = clean_ai_response(analysis.get("브랜드언급", ""))
+            
+            # 브랜드 언급: AI 결과 + Regex 결과 병합
+            ai_brand_mention = clean_ai_response(analysis.get("브랜드언급", ""))
+            final_brand_mention = merge_and_sort_brands(ai_brand_mention, title + " " + content)
             
             # 빈 응답이면 폴백
             if not summary or len(summary) < 10:
@@ -401,17 +434,22 @@ def analyze_cafe_content(title, content):
             return {
                 "요약": summary, 
                 "반려동물관련": is_relevant,
-                "브랜드언급": brand_mention
+                "브랜드언급": final_brand_mention
             }
             
         except Exception as json_err:
             print(f"      ⚠️ JSON 파싱 실패: {json_err}")
             # 파싱 실패 시 텍스트라도 건지기 위한 폴백
             clean_text = clean_ai_response(ai_response)
+            
+            # 폴백 상황에서도 Regex로 브랜드 추출 시도
+            fallback_brands = extract_brands_regex(title + " " + content)
+            fallback_brand_str = ", ".join(sorted(fallback_brands))
+            
             return {
                 "요약": clean_text[:100], 
                 "반려동물관련": True,
-                "브랜드언급": ""
+                "브랜드언급": fallback_brand_str
             }
     
     except Exception as e:

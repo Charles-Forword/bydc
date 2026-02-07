@@ -62,7 +62,8 @@ from content_filters import (
     is_genuine_question, 
     analyze_comment_sentiment,
     extract_keywords_hybrid,
-    analyze_comments_batch
+    analyze_comments_batch,
+    merge_and_sort_brands
 )
 
 
@@ -283,17 +284,33 @@ def analyze_content_with_ai(title, content):
             # 기본값 True 처리 (필드가 없을 경우)
             if "반려동물관련" not in analysis:
                 analysis["반려동물관련"] = True
+            
+            # 브랜드 언급: AI 결과 + Regex 결과 병합 (하이브리드 추출)
+            ai_brand_mention = analysis.get("브랜드언급", "")
+            final_brand_mention = merge_and_sort_brands(ai_brand_mention, title + " " + content)
+            analysis["브랜드언급"] = final_brand_mention
                 
             return analysis
         except Exception as parse_err:
             try:
-                # 파싱 실패 시 텍스트라도 건지기 위한 재시도 (간단한 정규식 등)
-                return {"반려동물관련": True, "요약": clean_ai_text(ai_response)[:150], "주요내용": "", "브랜드언급": ""}
+                # 파싱 실패 시 텍스트라도 건지기 위한 재시도 + Regex 브랜드 추출
+                fallback_brands_str = merge_and_sort_brands("", title + " " + content)
+                return {
+                    "반려동물관련": True, 
+                    "요약": clean_ai_text(ai_response)[:150], 
+                    "주요내용": "", 
+                    "브랜드언급": fallback_brands_str
+                }
             except:
                 pass
             print(f"      ⚠️ JSON 파싱 실패: {parse_err}")
-            # JSON 파싱 실패 시 빈 값 반환 (이상한 텍스트 저장 방지)
-            return {"반려동물관련": True, "요약": "", "주요내용": "", "브랜드언급": ""}
+            # JSON 파싱 실패 시 빈 값 반환 (단, 브랜드는 Regex로라도 추출 시도)
+            try:
+                fallback_brands_str = merge_and_sort_brands("", title + " " + content)
+            except:
+                fallback_brands_str = ""
+                
+            return {"반려동물관련": True, "요약": "", "주요내용": "", "브랜드언급": fallback_brands_str}
             
     except Exception as e:
         print(f"      ⚠️ AI 오류: {str(e)[:50]}")
