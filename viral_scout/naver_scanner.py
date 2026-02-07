@@ -56,6 +56,14 @@ from config import (
     AI_PROVIDER, GEMINI_API_KEY
 )
 
+from content_filters import (
+    analyze_cafe_content, 
+    detect_sponsored_content, 
+    is_genuine_question, 
+    analyze_comment_sentiment,
+    extract_keywords_hybrid
+)
+
 
 def scrape_blog_content(url):
     """네이버 블로그 본문 크롤링 (재시도 포함)"""
@@ -210,15 +218,15 @@ def analyze_content_with_ai(title, content):
 제목: {title}
 본문: {content[:1500]}
 
-3. 각 필드는 간결하게 작성하되, 문장이 중간에 끊기지 않도록 '다'로 끝나는 완전한 문장으로 작성하세요. (권장 100자, 최대 150자)
+3. 각 필드는 간결하게 작성하되, 문장이 중간에 끊기지 않도록 '음슴체'(~함, ~임)로 끝나는 완전한 문장으로 작성하세요. (권장 100자, 최대 150자)
 4. 해당 내용이 없으면 빈 문자열로 작성
 5. '브랜드언급'에는 본문에 언급된 모든 사료/간식 브랜드명을 쉼표로 구분해 나열하세요. 단, "보양대첩"이 포함되어 있다면 반드시 맨 처음에 적으세요. (예: 보양대첩, 로얄캐닌, 건강백서)
 
 아래 JSON 형식으로만 응답 (다른 말 없이 JSON만):
 {{
   "반려동물관련": true 또는 false,
-  "요약": "핵심 내용 3-4문장 요약 (100~150자 내외 자연스러운 매듭짓기)",
-  "주요내용": "언급된 제품 특징이나 효과",
+  "요약": "핵심 내용 3-4문장 요약 (100~150자 내외 '음슴체'로 자연스럽게 매듭짓기)",
+  "주요내용": "언급된 제품 특징이나 효과 (간결한 명사형)",
   "브랜드언급": "보양대첩을 최우선으로 한 브랜드 목록 (없으면 빈칸)"
 }}"""
 
@@ -339,6 +347,29 @@ def get_existing_links(sheet, link_column_index):
         print(f"      ⚠️ 기존 링크 조회 실패: {e}")
         return set()
 
+def get_existing_cafe_keys(sheet):
+    """
+    구글 시트에서 기존 카페 글 키(제목+날짜) 추출 (중복 체크용)
+    제목: D열 (index 3)
+    날짜: E열 (index 4)
+    """
+    try:
+        all_values = sheet.get_all_values()
+        if len(all_values) <= 1:
+            return set()
+        
+        keys = set()
+        for row in all_values[1:]:
+            if len(row) > 4:
+                title = row[3].strip()
+                date = row[4].strip()
+                if title and date:
+                    keys.add((title, date))
+        return keys
+    except Exception as e:
+        print(f"      ⚠️ 기존 카페 글 키 로드 실패: {e}")
+        return set()
+
 
 def load_keywords_from_sheet(spreadsheet):
     """
@@ -396,7 +427,32 @@ def filter_new_posts(posts, existing_links, source_type="카페"):
             p['link'] = normalized_link
             new_posts.append(p)
             
+    print(f"   📋 중복 제외하고 {len(new_posts)}건 수집 (중복: {duplicates}건)")
+    return new_posts
+
+def filter_new_cafe_posts(posts, existing_keys):
+    """
+    신규 카페 게시글만 필터링 (제목+날짜 기준 중복 제외)
+    
+    Args:
+        posts: 게시글 리스트
+        existing_keys: (제목, 날짜) 튜플 집합
+    
+    Returns:
+        list: 중복 제외된 신규 게시글
+    """
+    new_posts = []
+    
+    for p in posts:
+        # 제목과 날짜로 키 생성
+        key = (p.get('title', '').strip(), p.get('date', '').strip())
+        
+        if key not in existing_keys:
+            new_posts.append(p)
+            
     duplicates = len(posts) - len(new_posts)
+    print(f"   📋 중복 제외하고 {len(new_posts)}건 수집 (중복: {duplicates}건)")
+    return new_posts
     
     if duplicates > 0:
         print(f"   🔄 [{source_type}] 중복 {duplicates}건 제외, 신규 {len(new_posts)}건")
@@ -587,12 +643,14 @@ def main():
                     print(f"   🚫 제외(AI판단): {title[:40]}")
                     continue
 
-                # 블로그 데이터 (변경: F=요약, G=주요내용, H=브랜드언급)
-                # 헤더: 수집일시, 키워드, 제목, 날짜, 링크, 요약, 주요내용, 브랜드언급
+                # 블로그 데이터 (변경: F=요약, G=키워드, H=브랜드언급)
+                # 헤더: 수집일시, 키워드, 제목, 날짜, 링크, 요약, 주요내용(키워드), 브랜드언급
+                keywords_str = extract_keywords_hybrid(title, content)
+                
                 row_data = [
                     today_str, keyword, title, postdate, link,
                     analysis.get("요약", ""),
-                    analysis.get("주요내용", ""),
+                    keywords_str,  # 주요내용 -> 키워드 대체
                     analysis.get("브랜드언급", "")
                 ]
                 
@@ -627,16 +685,16 @@ def main():
             print(f"\n\n🏢 Phase 3: 카페 검색 시작...")
             cafe_briefing = []
             
-            # 중복 체크를 위해 기존 링크 로드 (F열=링크, 인덱스 5)
-            existing_cafe_links = get_existing_links(cafe_sheet, 5)
-            print(f"   📋 기존 카페 글: {len(existing_cafe_links)}건")
+            # 중복 체크를 위해 기존 글 키(제목+날짜) 로드
+            existing_cafe_keys = get_existing_cafe_keys(cafe_sheet)
+            print(f"   📋 기존 카페 글: {len(existing_cafe_keys)}건 (제목+날짜 기준)")
             
             for keyword in search_keywords:
                 print(f"\n🔍 [카페] '{keyword}'")
                 cafe_posts = search_cafe_posts(keyword, max_posts=CAFE_MAX_POSTS)
                 
-                # 중복 제외
-                new_posts = filter_new_posts(cafe_posts, existing_cafe_links, "카페")
+                # 중복 제외 (제목+날짜 기준)
+                new_posts = filter_new_cafe_posts(cafe_posts, existing_cafe_keys)
                 
                 for post in new_posts:
                     # 1. 댓글 수 확인
