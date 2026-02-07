@@ -365,39 +365,54 @@ def analyze_cafe_content(title, content):
 3. 전체 내용을 '음슴체'(~함, ~임)로 끝나는 완전한 문장으로 작성 (권장 100자, 최대 150자)
 4. 마크다운(**), 이모지, 해시태그 사용 금지
 5. "요약:", "결론:" 같은 라벨 없이 바로 내용만 작성
+6. '브랜드언급'에는 본문에 언급된 모든 사료/간식 브랜드명을 쉼표로 구분해 나열하세요. 단, "보양대첩"이 포함되어 있다면 반드시 맨 처음에 적으세요. (예: 보양대첩, 로얄캐닌, 건강백서)
 
-아래 형식으로 응답:
-관련여부: YES 또는 NO
-요약: (요약 내용)"""
+아래 JSON 형식으로만 응답 (다른 말 없이 JSON만):
+{{
+  "반려동물관련": true 또는 false,
+  "요약": "핵심 내용 요약 (음슴체)",
+  "브랜드언급": "보양대첩을 최우선으로 한 브랜드 목록 (없으면 빈칸)"
+}}"""
 
         ai_response = call_ai_api(prompt, max_tokens=200)
         
         # 디버깅: AI 원본 응답 출력
         print(f"      📝 AI 원본 응답: {ai_response[:100]}...")
         
-        # 관련여부 파싱
-        is_relevant = True
-        summary_text = ai_response
-        
-        if "관련여부:" in ai_response:
-            parts = ai_response.split("요약:")
-            if len(parts) >= 1:
-                relevant_part = parts[0]
-                if "NO" in relevant_part.upper():
-                    is_relevant = False
+        # JSON 파싱 시도
+        try:
+            if "```" in ai_response:
+                ai_response = ai_response.split("```")[1]
+                if ai_response.startswith("json"):
+                    ai_response = ai_response[4:]
+            
+            analysis = json.loads(ai_response)
+            
+            # 마크다운, 이모지 제거 후처리
+            summary = clean_ai_response(analysis.get("요약", ""))[:150]
+            is_relevant = analysis.get("반려동물관련", True)
+            brand_mention = clean_ai_response(analysis.get("브랜드언급", ""))
+            
+            # 빈 응답이면 폴백
+            if not summary or len(summary) < 10:
+                print(f"      ⚠️ AI 요약 너무 짧음, 본문으로 대체")
+                summary = clean_content[:100] if clean_content else title[:100]
                 
-                if len(parts) > 1:
-                    summary_text = parts[1].strip()
-        
-        # 마크다운, 이모지 제거 후처리 (길이 여유있게 150자)
-        summary = clean_ai_response(summary_text)[:150]
-        
-        # 빈 응답이면 폴백
-        if not summary or len(summary) < 10:
-            print(f"      ⚠️ AI 요약 너무 짧음, 본문으로 대체")
-            summary = clean_content[:100] if clean_content else title[:100]
-        
-        return {"요약": summary, "반려동물관련": is_relevant}
+            return {
+                "요약": summary, 
+                "반려동물관련": is_relevant,
+                "브랜드언급": brand_mention
+            }
+            
+        except Exception as json_err:
+            print(f"      ⚠️ JSON 파싱 실패: {json_err}")
+            # 파싱 실패 시 텍스트라도 건지기 위한 폴백
+            clean_text = clean_ai_response(ai_response)
+            return {
+                "요약": clean_text[:100], 
+                "반려동물관련": True,
+                "브랜드언급": ""
+            }
     
     except Exception as e:
         print(f"      ⚠️ AI 요약 실패: {e}")

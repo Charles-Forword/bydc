@@ -678,8 +678,7 @@ def main():
                 detect_sponsored_content,
                 is_genuine_question,
                 analyze_comments_batch,
-                extract_keywords_hybrid,
-                extract_competitors
+                extract_keywords_hybrid
             )
             
             print(f"\n\n🏢 Phase 3: 카페 검색 시작...")
@@ -725,8 +724,8 @@ def main():
                     # 4. 핵심 키워드 추출 (I열: 지정 키워드만)
                     keywords_str = extract_keywords_hybrid(post['title'], post['content'])
                     
-                    # 5. 경쟁사 언급 추출 (J열: 지정 경쟁사만)
-                    competitors_str = extract_competitors(post['title'], post['content'])
+                    # 5. 브랜드 언급 추출 (J열: AI 추출)
+                    brand_mention = ai_analysis.get("브랜드언급", "")
                     
                     # 카페 데이터 (이미지 열 제거)
                     # A: 수집일시, B: 키워드, C: 카페명
@@ -734,7 +733,7 @@ def main():
                     # G: 본문내용요약 (AI 요약, 100자)
                     # H: 댓글수
                     # I: 핵심연관키워드 (지정 키워드에서 매칭)
-                    # J: 경쟁사언급 (지정 경쟁사에서 매칭)
+                    # J: 브랜드언급 (AI 추출, 보양대첩 우선)
                     
                     row_data = [
                         today_str,                                  # A: 수집일시
@@ -746,13 +745,13 @@ def main():
                         ai_analysis.get("요약", "")[:100],          # G: 본문내용요약 (100자)
                         comment_count,                              # H: 댓글수
                         keywords_str,                               # I: 핵심연관키워드
-                        competitors_str                             # J: 경쟁사언급
+                        brand_mention                               # J: 브랜드언급
                     ]
                     
                     cafe_rows.append(row_data)
                     print(f"   ✅ 준비: {post['title'][:40]}")
-                    if competitors_str:
-                        print(f"      🏆 경쟁사 언급: {competitors_str}")
+                    if brand_mention:
+                        print(f"      🏆 브랜드 언급: {brand_mention}")
                     
                     if is_question:
                         cafe_briefing.append(f"- [질문/{post['cafe_name']}] {post['title'][:40]}")
