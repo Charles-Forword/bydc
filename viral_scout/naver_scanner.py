@@ -792,7 +792,7 @@ def main():
     
     # 누적 개수 계산 (기존 + 신규)
     blog_total = len(existing_blog_links) + blog_new_count
-    cafe_total = len(existing_cafe_links) + cafe_new_count if ENABLE_CAFE_CRAWLING else 0
+    cafe_total = len(existing_cafe_keys) + cafe_new_count if ENABLE_CAFE_CRAWLING else 0
     
     if total_count > 0:
         # 제목 30자 자르기 함수
