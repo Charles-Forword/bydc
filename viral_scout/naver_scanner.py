@@ -61,7 +61,8 @@ from content_filters import (
     detect_sponsored_content, 
     is_genuine_question, 
     analyze_comment_sentiment,
-    extract_keywords_hybrid
+    extract_keywords_hybrid,
+    analyze_comments_batch
 )
 
 
@@ -674,12 +675,6 @@ def main():
     if ENABLE_CAFE_CRAWLING:
         try:
             from cafe_scanner import search_cafe_posts
-            from content_filters import (
-                detect_sponsored_content,
-                is_genuine_question,
-                analyze_comments_batch,
-                extract_keywords_hybrid
-            )
             
             print(f"\n\n🏢 Phase 3: 카페 검색 시작...")
             cafe_briefing = []
