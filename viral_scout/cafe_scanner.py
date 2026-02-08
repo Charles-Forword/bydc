@@ -1,3 +1,4 @@
+
 """
 네이버 카페 크롤러
 통합검색 카페 탭에서 게시글 + 댓글 수집
@@ -5,8 +6,9 @@
 
 import time
 import hashlib
+import random
 from playwright.sync_api import sync_playwright
-from config import SEARCH_KEYWORDS, CAFE_MAX_POSTS
+from config import SEARCH_KEYWORDS, CAFE_MAX_POSTS, SORT_MODE
 
 def generate_post_hash(author, title, content):
     """중복 제거용 해시 생성"""
@@ -85,9 +87,15 @@ def search_cafe_posts(keyword, max_posts=20):
     results = []
     
     with sync_playwright() as p:
-        # 브라우저 실행 (headless mode)
+        # 브라우저 실행 (headless mode) - 한 번만 실행!
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        
+        # 모바일/데스크탑 봇 탐지 회피용 User-Agent 설정
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
+        
+        page = context.new_page()
         
         try:
             # 1. 네이버 통합검색
@@ -95,7 +103,6 @@ def search_cafe_posts(keyword, max_posts=20):
             
             # 정렬 옵션 적용 (sim=관련도순, date=최신순)
             sort_param = "&sort=date" if SORT_MODE == "date" else "&sort=sim"
-            search_url = f"https://search.naver.com/search.naver?query={keyword}&nso=so%3A{SORT_MODE}%2Cp%3Aall"
             
             # 정확한 URL 파라미터 구성
             # where=article (카페 글)
@@ -106,6 +113,9 @@ def search_cafe_posts(keyword, max_posts=20):
             
             page.goto(final_url, wait_until="networkidle")
             
+            # 랜덤 지연
+            time.sleep(random.uniform(1.0, 2.0))
+            
             # 2. 카페 탭 클릭
             try:
                 cafe_tab = page.locator("a.tab:has-text('카페')").first
@@ -113,11 +123,10 @@ def search_cafe_posts(keyword, max_posts=20):
                     cafe_tab.click()
                     page.wait_for_load_state("networkidle")
                 else:
-                    print(f"   ⚠️ 카페 탭 없음")
-                    return results
+                    # 통합검색 결과에 바로 나오는 경우도 있음
+                    pass
             except Exception as e:
-                print(f"   ⚠️ 카페 탭 클릭 실패: {e}")
-                return results
+                print(f"   ⚠️ 카페 탭 클릭 실패 (통합검색 결과 사용): {e}")
             
             
             # 3. 게시글 리스트 수집 (광고 제외, 실제 카페 게시글만)
@@ -160,45 +169,45 @@ def search_cafe_posts(keyword, max_posts=20):
                     
                     print(f"   📄 [{idx+1}] {title[:40]}... ({cafe_name})")
                     
-                    # 4. 게시글 상세 페이지 접속 (새 탭)
-                    post_data = scrape_cafe_post_detail(p, link, title, author, cafe_name, post_date, description)
+                    # 4. 게시글 상세 페이지 접속 (context 재사용)
+                    post_data = scrape_cafe_post_detail(context, link, title, author, cafe_name, post_date, description)
                     
                     if post_data:
                         results.append(post_data)
                     
-                    time.sleep(1)  # 부하 방지
+                    # 랜덤 지연 (부하 방지 및 사람처럼 보이기)
+                    time.sleep(random.uniform(1.5, 3.5))
                     
                 except Exception as e:
                     print(f"   ⚠️ 게시글 파싱 실패: {e}")
                     continue
             
         finally:
+            context.close()
             browser.close()
     
     return results
 
 
-def scrape_cafe_post_detail(playwright_instance, url, title, author, cafe_name, post_date, description):
+def scrape_cafe_post_detail(context, url, title, author, cafe_name, post_date, description):
     """
-    카페 게시글 상세 페이지 크롤링
+    카페 게시글 상세 페이지 크롤링 (Browser Context 재사용)
     
     Returns:
         dict: 게시글 데이터 (본문, 댓글 포함)
     """
-    browser = playwright_instance.chromium.launch(headless=True)
-    page = browser.new_page()
+    # 새 탭 열기 (브라우저를 새로 띄우지 않음!)
+    page = context.new_page()
     
     try:
         page.goto(url, wait_until="networkidle", timeout=15000)
-        time.sleep(2)  # 동적 로딩 대기
+        time.sleep(random.uniform(1.0, 2.0))  # 동적 로딩 대기
         
         # iframe 확인 (카페는 보통 iframe 사용)
         iframe = page.frame_locator("iframe#cafe_main")
         
         # 카페명 개선 (상세 페이지에서 재확인)
         improved_cafe_name = improve_cafe_name_extraction(page, cafe_name)
-        
-
         
         # 본문 추출
         content = ""
@@ -267,12 +276,13 @@ def scrape_cafe_post_detail(playwright_instance, url, title, author, cafe_name, 
         return None
     
     finally:
-        browser.close()
+        # 탭만 닫음 (브라우저는 유지)
+        page.close()
 
 
 if __name__ == "__main__":
     # 테스트
-    results = search_cafe_posts("보양대첩", max_posts=5)
+    results = search_cafe_posts("보양대첩", max_posts=3)
     print(f"\n✅ 수집 완료: {len(results)}건")
     
     for r in results:
