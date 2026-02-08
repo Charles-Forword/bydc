@@ -91,9 +91,20 @@ def search_cafe_posts(keyword, max_posts=20):
         
         try:
             # 1. 네이버 통합검색
-            print(f"   🔍 카페 검색: '{keyword}'")
-            search_url = f"https://search.naver.com/search.naver?query={keyword}"
-            page.goto(search_url, wait_until="networkidle")
+            print(f"   🔍 카페 검색: '{keyword}' (정렬: {SORT_MODE})")
+            
+            # 정렬 옵션 적용 (sim=관련도순, date=최신순)
+            sort_param = "&sort=date" if SORT_MODE == "date" else "&sort=sim"
+            search_url = f"https://search.naver.com/search.naver?query={keyword}&nso=so%3A{SORT_MODE}%2Cp%3Aall"
+            
+            # 정확한 URL 파라미터 구성
+            # where=article (카페 글)
+            # ie=utf8
+            # st=rel (관련도순) or date (최신순)
+            base_url = "https://search.naver.com/search.naver?where=article&ie=utf8"
+            final_url = f"{base_url}&query={keyword}{sort_param}"
+            
+            page.goto(final_url, wait_until="networkidle")
             
             # 2. 카페 탭 클릭
             try:

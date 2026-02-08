@@ -63,7 +63,8 @@ from content_filters import (
     analyze_comment_sentiment,
     extract_keywords_hybrid,
     analyze_comments_batch,
-    merge_and_sort_brands
+    merge_and_sort_brands,
+    analyze_daily_summary
 )
 
 
@@ -317,12 +318,15 @@ def analyze_content_with_ai(title, content):
         return {"반려동물관련": True, "요약": "", "주요내용": "", "브랜드언급": ""}
 
 
-def send_telegram_message(message):
+def send_telegram_message(message, disable_notification=False):
     """텔레그램 메시지 발송"""
     try:
         import requests
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         data = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
+        if disable_notification:
+            data["disable_notification"] = True
+            
         response = requests.post(url, data=data, timeout=10)
         
         if response.status_code == 200:
@@ -844,6 +848,18 @@ def main():
         
         msg += f"👉 {GOOGLE_SHEET_URL}"
         send_telegram_message(msg)
+        
+        # --- 추가: 일일 통합 분석 (전문가 모드) ---
+        if ENABLE_AI_ANALYSIS:
+            print("🧠 일일 전문가 분석 리포트 생성 중...")
+            try:
+                summary_report = analyze_daily_summary(blog_rows, cafe_rows)
+                if summary_report:
+                    time.sleep(10)  # 10초 대기
+                    send_telegram_message(summary_report, disable_notification=True)
+                    print("✅ 전문가 분석 리포트 발송 완료 (무음)")
+            except Exception as e:
+                print(f"❌ 전문가 분석 리포트 발송 실패: {e}")
     else:
         print("신규 데이터 없음")
 

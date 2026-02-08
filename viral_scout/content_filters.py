@@ -460,6 +460,75 @@ def analyze_cafe_content(title, content):
         return {"요약": clean_content[:100] if clean_content else title[:100]}
 
 
+
+def analyze_daily_summary(blog_rows, cafe_rows):
+    """
+    일일 수집 데이터 통합 분석 (전문가 모드)
+    
+    Args:
+        blog_rows: 블로그 수집 데이터 리스트
+        cafe_rows: 카페 수집 데이터 리스트
+        
+    Returns:
+        str: 전문가 분석 리포트 텍스트
+    """
+    if not GEMINI_API_KEY and not OPENAI_API_KEY:
+        return "AI API가 설정되지 않아 통합 분석을 수행할 수 없습니다."
+
+    # 데이터 요약
+    total_count = len(blog_rows) + len(cafe_rows)
+    if total_count == 0:
+        return "수집된 데이터가 없습니다."
+        
+    # 제목과 요약만 추출해서 프롬프트 구성
+    content_summary = "【블로그 데이터】\n"
+    for row in blog_rows[:15]:  # 토큰 제한 고려 상위 15개
+        content_summary += f"- {row[2]} (요약: {row[5]})\n"
+        
+    content_summary += "\n【카페 데이터】\n"
+    for row in cafe_rows[:15]:  # 토큰 제한 고려 상위 15개
+        content_summary += f"- {row[3]} (요약: {row[6]})\n"
+        
+    prompt = f"""당신은 반려동물 식품 브랜드 '보양대첩'의 마케팅 전략 전문가입니다.
+오늘 수집된 블로그와 카페의 '인기 게시글(관련도순)' 데이터를 분석하고 전략을 제안하세요.
+
+[수집된 데이터 요약]
+{content_summary}
+
+---
+[분석 요구사항]
+다음 3가지 관점에서 예리하게 분석하여 보고해주세요. (존댓말, 각 항목별 2~3문장)
+
+1. 🗣️ 소비자 반응 (Consumer Voice)
+   - 소비자들이 느끼는 날것의 감정이나 불편함은 무엇인가?
+   - 보양대첩 판매자가 놓치지 말아야 할 '액기스' 정보는?
+
+2. 🏭 시장 트렌드 & 제조사 전략 (Market & Manufacturer)
+   - 현재 시장의 흐름이나 경쟁사들의 움직임에서 포착된 패턴은?
+   - 소비자들의 심리적 변화나 새로운 니즈는 무엇인가?
+
+3. 🚀 보양대첩 마케팅 전략 (Action Plan)
+   - 오늘 데이터를 바탕으로 우리는 무엇을 해야 하는가?
+   - 어떻게 시장을 파고들어 성장을 만들어낼 것인가? (구체적이고 실현 가능한 제안)
+
+[출력 형식]
+## 📊 오늘의 전문가 분석 리포트
+
+1. 🗣️ **소비자 반응**
+(내용)
+
+2. 🏭 **시장 트렌드**
+(내용)
+
+3. 🚀 **보양대첩 전략**
+(내용)"""
+
+    try:
+        return call_ai_api(prompt, max_tokens=1000)
+    except Exception as e:
+        return f"통합 분석 생성 실패: {e}"
+
+
 if __name__ == "__main__":
     # 테스트
     print("=== 협찬 감지 테스트 ===")

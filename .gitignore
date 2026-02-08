@@ -45,3 +45,4 @@ service_account.json
 # Logs
 *.log
 viral_scout/daily_log.txt
+viral_scout/config.py
