@@ -506,6 +506,18 @@ def init_google_sheets():
                 except Exception as e:
                     print(f"⚠️ Base64 decode failed, using raw content: {e}")
             
+            # JSON 파싱 및 private_key 줄바꿈 수정 (Invalid JWT Signature 해결)
+            try:
+                import json
+                data = json.loads(json_content)
+                if 'private_key' in data:
+                    # 실제 줄바꿈 문자로 변경 (\\n -> \n)
+                    data['private_key'] = data['private_key'].replace('\\n', '\n')
+                    json_content = json.dumps(data)
+                    print("ℹ️ Fixed newlines in private_key.")
+            except Exception as e:
+                 print(f"⚠️ Failed to parse/fix JSON content: {e}")
+
             with open("service_account.json", "w") as f:
                 f.write(json_content)
             
