@@ -12,7 +12,6 @@ import urllib.request
 import urllib.parse
 from urllib.parse import urlparse
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 
 def normalize_cafe_url(url):
     """
@@ -540,14 +539,37 @@ def init_google_sheets():
                     else:
                         print(f"✅ service_account.json 필수 키 확인 완료")
                         print(f"   client_email: {sa_data.get('client_email', 'N/A')}")
+                        
+                        # [DEBUG] private_key 형식 진단 (전체 키 노출 X)
+                        pk = sa_data.get('private_key', '')
+                        if pk:
+                            pk_len = len(pk)
+                            line_count = pk.count('\n')
+                            first_20 = pk[:20].replace('\n', '\\n')
+                            last_20 = pk[-20:].replace('\n', '\\n')
+                            print(f"   🔑 Key Info: Length={pk_len}, Lines={line_count}")
+                            print(f"      Start: {first_20}...")
+                            print(f"      End: ...{last_20}")
+                            
+                            if "-----BEGIN PRIVATE KEY-----" not in pk:
+                                print("   ❌ Error: 'BEGIN PRIVATE KEY' header missing!")
+                            if "-----END PRIVATE KEY-----" not in pk:
+                                print("   ❌ Error: 'END PRIVATE KEY' footer missing!")
+                                
                 except Exception as json_err:
                     print(f"❌ service_account.json JSON 파싱 실패: {json_err}")
             else:
                 print("❌ Failed to create service_account.json")
 
-        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        creds = ServiceAccountCredentials.from_json_keyfile_name(SERVICE_ACCOUNT_FILE, scope)
-        client = gspread.authorize(creds)
+        # 인증 방식 변경: oauth2client (Deprecated) -> gspread (Modern)
+        try:
+            client = gspread.service_account(filename=SERVICE_ACCOUNT_FILE)
+            print("✅ gspread.service_account() 인증 성공")
+        except Exception as auth_err:
+            print(f"❌ gspread 인증 실패: {auth_err}")
+            print(f"   상세 에러: {type(auth_err).__name__}")
+            raise auth_err
+
         spreadsheet = client.open_by_url(GOOGLE_SHEET_URL)
         
         # 블로그 시트 (기존)
