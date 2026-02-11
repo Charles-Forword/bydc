@@ -447,7 +447,8 @@ def filter_new_posts(posts, existing_links, source_type="카페"):
             # 저장될 데이터도 정규화된 링크로 업데이트
             p['link'] = normalized_link
             new_posts.append(p)
-            
+    
+    duplicates = len(posts) - len(new_posts)
     print(f"   📋 중복 제외하고 {len(new_posts)}건 수집 (중복: {duplicates}건)")
     return new_posts
 
@@ -473,11 +474,10 @@ def filter_new_cafe_posts(posts, existing_keys):
             
     duplicates = len(posts) - len(new_posts)
     print(f"   📋 중복 제외하고 {len(new_posts)}건 수집 (중복: {duplicates}건)")
-    return new_posts
     
     if duplicates > 0:
-        print(f"   🔄 [{source_type}] 중복 {duplicates}건 제외, 신규 {len(new_posts)}건")
-    
+        print(f"   🔄 [카페] 중복 {duplicates}건 제외, 신규 {len(new_posts)}건")
+        
     return new_posts
 
 def init_google_sheets():
