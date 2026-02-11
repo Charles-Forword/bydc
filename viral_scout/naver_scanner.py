@@ -510,10 +510,14 @@ def init_google_sheets():
                 import json
                 data = json.loads(json_content)
                 if 'private_key' in data:
-                    # 실제 줄바꿈 문자로 변경 (\\n -> \n)
-                    data['private_key'] = data['private_key'].replace('\\n', '\n')
-                    json_content = json.dumps(data)
-                    print("ℹ️ Fixed newlines in private_key.")
+                    # 키가 이미 올바른 형식이면 건드리지 않음
+                    pk = data['private_key']
+                    if '\\n' in pk:
+                        data['private_key'] = pk.replace('\\n', '\n')
+                        json_content = json.dumps(data)
+                        print("ℹ️ Fixed newlines in private_key (escaped \\n detected).")
+                    else:
+                        print("ℹ️ Private key format looks correct (no escaped \\n).")
             except Exception as e:
                  print(f"⚠️ Failed to parse/fix JSON content: {e}")
 
